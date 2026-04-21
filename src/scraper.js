@@ -11,7 +11,16 @@ const { chromium } = require('playwright-chromium');
 async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   console.log(`[Scraper] Launching browser: keyword="${keyword}", max=${max_leads}`);
 
-  const launchOptions = { headless: true };
+  const launchOptions = {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
+    ],
+  };
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }
