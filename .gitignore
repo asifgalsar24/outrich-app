@@ -1,0 +1,4 @@
+node_modules/
+.env
+*.json.bak
+ad_node_dump_*.json
