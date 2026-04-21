@@ -24,6 +24,11 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }
+  // Residential proxy required when running on cloud servers (Meta blocks datacenter IPs)
+  if (process.env.PROXY_URL) {
+    launchOptions.proxy = { server: process.env.PROXY_URL };
+    console.log('[Scraper] Using proxy:', process.env.PROXY_URL.replace(/:\/\/.*@/, '://***@'));
+  }
   const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
