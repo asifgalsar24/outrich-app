@@ -218,7 +218,7 @@ function buildLead(ad, keyword) {
   const name = (ad.page_name || '').trim();
   if (!name || name.length < 2) return null;
 
-  const adId = String(ad.ad_archive_id || ad.id || '');
+  const adId = ad.ad_archive_id || ad.id || null;
 
   // Detect ad type from creative
   const creative = ad.snapshot || ad.ad_creative || {};

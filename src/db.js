@@ -45,7 +45,7 @@ async function insertLeads(leads, client_id) {
   if (toInsert.length > 0) {
     const { data, error } = await supabase
       .from('leads')
-      .insert(toInsert)
+      .upsert(toInsert, { onConflict: 'ad_id', ignoreDuplicates: true })
       .select('id, company_name, facebook_page');
     if (error) throw new Error(`insertLeads (insert): ${error.message}`);
     results.push(...(data ?? []));
