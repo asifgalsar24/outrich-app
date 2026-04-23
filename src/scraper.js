@@ -5,12 +5,52 @@ const path = require('path');
 const { chromium } = require('playwright-chromium');
 
 /**
- * Scrape Meta Ads Library by intercepting the internal GraphQL calls
- * the page makes when loading search results.
+ * Scrape Meta Ads Library by intercepting the internal GraphQL calls.
+ * Retries up to 3 times with a different proxy IP each attempt.
  */
 async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   console.log(`[Scraper] Launching browser: keyword="${keyword}", max=${max_leads}`);
 
+  const proxyUrls = process.env.PROXY_URL
+    ? process.env.PROXY_URL.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+
+  const maxAttempts = proxyUrls.length > 0 ? Math.min(3, proxyUrls.length) : 1;
+  const usedIndexes = new Set();
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let proxyConfig = null;
+
+    if (proxyUrls.length > 0) {
+      let idx;
+      // Pick a random index not yet used this run
+      do { idx = Math.floor(Math.random() * proxyUrls.length); }
+      while (usedIndexes.has(idx) && usedIndexes.size < proxyUrls.length);
+      usedIndexes.add(idx);
+
+      const _p = new URL(proxyUrls[idx]);
+      proxyConfig = {
+        server: `${_p.protocol}//${_p.hostname}:${_p.port}`,
+        username: _p.username,
+        password: _p.password,
+      };
+      console.log(`[Scraper] Attempt ${attempt}/${maxAttempts} — proxy: ${_p.hostname}:${_p.port}`);
+    }
+
+    const leads = await scrapeOnce({ keyword, max_leads, proxyConfig });
+
+    if (leads.length > 0) {
+      console.log(`[Scraper] Done. Returning ${leads.length} unique leads (attempt ${attempt}).`);
+      return leads;
+    }
+
+    console.log(`[Scraper] Attempt ${attempt} returned 0 real ads — ${attempt < maxAttempts ? 'retrying with different proxy...' : 'giving up.'}`);
+  }
+
+  return [];
+}
+
+async function scrapeOnce({ keyword, max_leads, proxyConfig }) {
   const launchOptions = {
     headless: true,
     args: [
@@ -24,19 +64,10 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
     launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }
-  // Residential proxy required when running on cloud servers (Meta blocks datacenter IPs)
-  // PROXY_URL supports comma-separated list for rotation — picks a random one each run
-  if (process.env.PROXY_URL) {
-    const urls = process.env.PROXY_URL.split(',').map(s => s.trim()).filter(Boolean);
-    const chosen = urls[Math.floor(Math.random() * urls.length)];
-    const _p = new URL(chosen);
-    launchOptions.proxy = {
-      server: `${_p.protocol}//${_p.hostname}:${_p.port}`,
-      username: _p.username,
-      password: _p.password,
-    };
-    console.log('[Scraper] Using proxy:', `${_p.protocol}//${_p.hostname}:${_p.port}`, `(1 of ${urls.length})`);
+  if (proxyConfig) {
+    launchOptions.proxy = proxyConfig;
   }
+
   const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -48,27 +79,20 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   const collectedAds = [];
   let _gqlCount = 0, _gqlMatched = 0;
 
-  // Intercept GraphQL responses that contain ad data
+  // Intercept GraphQL responses that contain real ad data (search_results_connection)
   page.on('response', async (response) => {
     const url = response.url();
-    if (url.includes('graphql')) {
-      _gqlCount++;
-      console.log('[Scraper] GraphQL URL:', url.slice(0, 120));
-    }
+    if (url.includes('graphql')) _gqlCount++;
     if (!url.includes('facebook.com') && !url.includes('fb.com')) return;
     if (!url.includes('graphql') && !url.includes('api/graphql')) return;
 
     try {
       const text = await response.text();
-      if (
-        !text.includes('page_name') &&
-        !text.includes('ad_archive_id') &&
-        !text.includes('dynamic_filter_options')
-      ) return;
+      // Only process responses with real ad nodes (not filter options)
+      if (!text.includes('page_name') && !text.includes('ad_archive_id')) return;
       _gqlMatched++;
       console.log('[Scraper] Matched response (first 200):', text.slice(0, 200));
 
-      // Facebook often returns multiple JSON objects per line (JSONP-like)
       const lines = text.split('\n').filter(l => l.trim().startsWith('{'));
       for (const line of lines) {
         try {
@@ -87,16 +111,15 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
     const title = await page.title();
     console.log('[Scraper] Page title:', title);
     if (title.toLowerCase().includes('log in') || title.toLowerCase().includes('sign up')) {
-      console.log('[Scraper] WARNING: Login wall detected — proxy may not be bypassing auth');
+      console.log('[Scraper] WARNING: Login wall detected');
     }
 
-    // Dismiss cookie consent
     await dismissConsent(page);
 
-    // Wait for initial load — longer wait gives search_results_connection time to arrive
+    // Wait for search_results_connection to arrive (it's slower than filter options)
     await page.waitForTimeout(10000);
 
-    // Scroll to trigger more loads — at least 3 scrolls regardless of max_leads
+    // At least 3 scrolls to trigger lazy-load
     let scrollRounds = 0;
     const maxScrolls = Math.max(3, Math.ceil(max_leads / 10));
 
@@ -114,15 +137,12 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
 
   // Deduplicate and limit
   const seen = new Set();
-  const deduped = collectedAds.filter(l => {
+  return collectedAds.filter(l => {
     const key = l.ad_id || l.company_name;
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   }).slice(0, max_leads);
-
-  console.log(`[Scraper] Done. Returning ${deduped.length} unique leads.`);
-  return deduped;
 }
 
 function buildAdsLibraryUrl(keyword) {
@@ -156,39 +176,13 @@ async function dismissConsent(page) {
 }
 
 function extractAdsFromGraphQL(obj, results, keyword) {
-  // Recursively walk JSON to find ad objects
   if (!obj || typeof obj !== 'object') return;
-
-  // Extract from dynamic_filter_options.pages (the filter-panel response)
-  // Contains: display_name (company), key (page ID), count (active ads)
-  if (Array.isArray(obj.pages) && obj.pages.length > 0 &&
-      obj.pages[0]?.display_name && obj.pages[0]?.key) {
-    for (const p of obj.pages) {
-      if (!p.display_name || !p.key) continue;
-      results.push({
-        company_name: p.display_name,
-        ad_id: null,
-        ad_url: `https://www.facebook.com/ads/library/?view_all_page_id=${p.key}`,
-        ad_type: 'image',
-        website_url: '',
-        facebook_page: `https://www.facebook.com/${p.key}`,
-        niche: keyword,
-        location: 'Israel',
-        active_ads_count: typeof p.count === 'number' ? p.count : 1,
-        page_followers: null,
-        source: 'meta_ads',
-      });
-    }
-    return;
-  }
 
   // Detect an ad node by presence of page_name + ad_archive_id
   if (obj.page_name && (obj.ad_archive_id || obj.id)) {
-    // Dump first 3 ad nodes to file so we can identify the real total-ad-count field
     if (results.length < 3) {
       const dumpPath = path.join(__dirname, `../ad_node_dump_${results.length}.json`);
       try {
-        // Truncate huge arrays (snapshot etc) so the file stays readable
         const safe = JSON.parse(JSON.stringify(obj, (k, v) =>
           Array.isArray(v) && v.length > 5 ? `[Array(${v.length})]` : v
         ));
@@ -196,15 +190,11 @@ function extractAdsFromGraphQL(obj, results, keyword) {
         console.log(`[Scraper] Ad node ${results.length} dumped to ${dumpPath}`);
       } catch (e) { /* ignore write errors */ }
       console.log(`[Scraper] Ad node ${results.length} keys:`, Object.keys(obj).join(', '));
-      // Log any numeric fields that might hold total ad count
       for (const [k, v] of Object.entries(obj)) {
         if (typeof v === 'number') console.log(`  [Scraper]   ${k} = ${v}`);
       }
     }
 
-    // Resolve total ad count.
-    // collation_count = how many collated versions of this ad are running (Meta's own count field).
-    // Sum these across all ads from the same company in groupLeadsByCompany.
     const nestedAds = Array.isArray(obj.collated_results) ? obj.collated_results : [];
     const resolvedCount =
       typeof obj.collation_count === 'number' && obj.collation_count > 0 ? obj.collation_count :
@@ -216,9 +206,6 @@ function extractAdsFromGraphQL(obj, results, keyword) {
     const ad = buildLead({ ...obj, _resolved_count: resolvedCount }, keyword);
     if (ad) results.push(ad);
 
-    // If there are nested ads (individual entries within this page node),
-    // also walk them so their unique ad_ids get counted in groupLeadsByCompany.
-    // We skip items that already have a page_name (they'd be handled as full nodes above).
     for (const nested of nestedAds) {
       if (nested.ad_archive_id && !nested.page_name) {
         extractAdsFromGraphQL({ ...nested, page_name: obj.page_name, page_id: obj.page_id, page_profile_uri: obj.page_profile_uri, page_like_count: obj.page_like_count }, results, keyword);
@@ -227,15 +214,11 @@ function extractAdsFromGraphQL(obj, results, keyword) {
     return;
   }
 
-  // Also handle collated_results arrays at the top level
   if (Array.isArray(obj.collated_results)) {
-    for (const item of obj.collated_results) {
-      extractAdsFromGraphQL(item, results, keyword);
-    }
+    for (const item of obj.collated_results) extractAdsFromGraphQL(item, results, keyword);
     return;
   }
 
-  // Keep walking
   if (Array.isArray(obj)) {
     for (const item of obj) extractAdsFromGraphQL(item, results, keyword);
   } else {
@@ -249,7 +232,6 @@ function buildLead(ad, keyword) {
 
   const adId = ad.ad_archive_id || ad.id || null;
 
-  // Detect ad type from creative
   const creative = ad.snapshot || ad.ad_creative || {};
   const hasVideo = !!(creative.videos?.length || creative.video_sd_url);
   const hasCarousel = !!(creative.cards?.length > 1);
