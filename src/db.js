@@ -11,18 +11,18 @@ const supabase = createClient(
 // ── Leads ────────────────────────────────────────────────────────────────────
 
 async function insertLeads(leads, client_id) {
-  const adIds = leads.map((r) => r.ad_id).filter(Boolean);
+  const pages = leads.map((r) => r.facebook_page).filter(Boolean);
 
-  // Fetch existing leads for THIS client by ad_id (the unique key)
+  // facebook_page is the business-level unique key (one row per company)
   let existingMap = new Map();
-  if (adIds.length > 0) {
+  if (pages.length > 0) {
     let query = supabase
       .from('leads')
-      .select('id, ad_id, lemlist_status')
-      .in('ad_id', adIds);
+      .select('id, facebook_page, lemlist_status')
+      .in('facebook_page', pages);
     if (client_id) query = query.eq('client_id', client_id);
     const { data: existing } = await query;
-    for (const row of (existing || [])) existingMap.set(row.ad_id, row);
+    for (const row of (existing || [])) existingMap.set(row.facebook_page, row);
   }
 
   const toInsert = [];
@@ -30,7 +30,7 @@ async function insertLeads(leads, client_id) {
   let skippedSent = 0;
 
   for (const lead of leads) {
-    const existing = lead.ad_id ? existingMap.get(lead.ad_id) : null;
+    const existing = lead.facebook_page ? existingMap.get(lead.facebook_page) : null;
     if (!existing) {
       toInsert.push({ ...lead, client_id: client_id || null });
     } else if (existing.lemlist_status === 'sent') {
@@ -45,7 +45,7 @@ async function insertLeads(leads, client_id) {
   if (toInsert.length > 0) {
     const { data, error } = await supabase
       .from('leads')
-      .upsert(toInsert, { onConflict: 'ad_id', ignoreDuplicates: true })
+      .upsert(toInsert, { onConflict: 'facebook_page', ignoreDuplicates: true })
       .select('id, company_name, facebook_page');
     if (error) throw new Error(`insertLeads (insert): ${error.message}`);
     results.push(...(data ?? []));
