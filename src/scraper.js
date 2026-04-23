@@ -1,7 +1,5 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
 const { chromium } = require('playwright-chromium');
 
 /**
@@ -97,7 +95,7 @@ async function scrapeOnce({ keyword, max_leads, proxyConfig }) {
       for (const line of lines) {
         try {
           const json = JSON.parse(line);
-          extractAdsFromGraphQL(json, collectedAds, keyword);
+          extractFromSearchResults(json, collectedAds, keyword);
         } catch { /* skip malformed lines */ }
       }
     } catch { /* skip unreadable responses */ }
@@ -175,54 +173,38 @@ async function dismissConsent(page) {
   } catch { /* no consent dialog */ }
 }
 
-function extractAdsFromGraphQL(obj, results, keyword) {
-  if (!obj || typeof obj !== 'object') return;
+// Navigate directly to search_results_connection.edges — the only path that contains
+// keyword-filtered active ads. Avoids picking up sidebar/featured/related ad nodes.
+function extractFromSearchResults(json, results, keyword) {
+  const edges = json?.data?.ad_library_main?.search_results_connection?.edges;
+  if (!Array.isArray(edges)) return;
 
-  // Detect an ad node by presence of page_name + ad_archive_id
-  if (obj.page_name && (obj.ad_archive_id || obj.id)) {
-    if (results.length < 3) {
-      const dumpPath = path.join(__dirname, `../ad_node_dump_${results.length}.json`);
-      try {
-        const safe = JSON.parse(JSON.stringify(obj, (k, v) =>
-          Array.isArray(v) && v.length > 5 ? `[Array(${v.length})]` : v
-        ));
-        fs.writeFileSync(dumpPath, JSON.stringify(safe, null, 2));
-        console.log(`[Scraper] Ad node ${results.length} dumped to ${dumpPath}`);
-      } catch (e) { /* ignore write errors */ }
-      console.log(`[Scraper] Ad node ${results.length} keys:`, Object.keys(obj).join(', '));
-      for (const [k, v] of Object.entries(obj)) {
-        if (typeof v === 'number') console.log(`  [Scraper]   ${k} = ${v}`);
-      }
-    }
+  for (const edge of edges) {
+    const node = edge?.node;
+    if (!node) continue;
 
-    const nestedAds = Array.isArray(obj.collated_results) ? obj.collated_results : [];
+    // collated_results holds individual ad variants for this page; fall back to node itself
+    const items = Array.isArray(node.collated_results) && node.collated_results.length > 0
+      ? node.collated_results
+      : [node];
+
     const resolvedCount =
-      typeof obj.collation_count === 'number' && obj.collation_count > 0 ? obj.collation_count :
-      typeof obj.total_active_ads_count === 'number' ? obj.total_active_ads_count :
-      typeof obj.ad_count === 'number' ? obj.ad_count :
-      nestedAds.length > 0 ? nestedAds.length :
+      typeof node.collation_count === 'number' && node.collation_count > 0 ? node.collation_count :
+      Array.isArray(node.collated_results) ? node.collated_results.length :
       1;
 
-    const ad = buildLead({ ...obj, _resolved_count: resolvedCount }, keyword);
-    if (ad) results.push(ad);
-
-    for (const nested of nestedAds) {
-      if (nested.ad_archive_id && !nested.page_name) {
-        extractAdsFromGraphQL({ ...nested, page_name: obj.page_name, page_id: obj.page_id, page_profile_uri: obj.page_profile_uri, page_like_count: obj.page_like_count }, results, keyword);
-      }
+    for (const item of items) {
+      const merged = {
+        ...item,
+        page_name: item.page_name || node.page_name,
+        page_id: item.page_id || node.page_id,
+        page_profile_uri: item.page_profile_uri || node.page_profile_uri,
+        page_like_count: item.page_like_count || node.page_like_count,
+        _resolved_count: resolvedCount,
+      };
+      const ad = buildLead(merged, keyword);
+      if (ad) results.push(ad);
     }
-    return;
-  }
-
-  if (Array.isArray(obj.collated_results)) {
-    for (const item of obj.collated_results) extractAdsFromGraphQL(item, results, keyword);
-    return;
-  }
-
-  if (Array.isArray(obj)) {
-    for (const item of obj) extractAdsFromGraphQL(item, results, keyword);
-  } else {
-    for (const val of Object.values(obj)) extractAdsFromGraphQL(val, results, keyword);
   }
 }
 
