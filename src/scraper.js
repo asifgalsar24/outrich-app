@@ -25,14 +25,17 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
     launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
   }
   // Residential proxy required when running on cloud servers (Meta blocks datacenter IPs)
+  // PROXY_URL supports comma-separated list for rotation — picks a random one each run
   if (process.env.PROXY_URL) {
-    const _p = new URL(process.env.PROXY_URL);
+    const urls = process.env.PROXY_URL.split(',').map(s => s.trim()).filter(Boolean);
+    const chosen = urls[Math.floor(Math.random() * urls.length)];
+    const _p = new URL(chosen);
     launchOptions.proxy = {
       server: `${_p.protocol}//${_p.hostname}:${_p.port}`,
       username: _p.username,
       password: _p.password,
     };
-    console.log('[Scraper] Using proxy:', `${_p.protocol}//${_p.hostname}:${_p.port}`);
+    console.log('[Scraper] Using proxy:', `${_p.protocol}//${_p.hostname}:${_p.port}`, `(1 of ${urls.length})`);
   }
   const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
