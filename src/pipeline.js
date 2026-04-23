@@ -66,7 +66,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
         if (result.status === 'fulfilled') {
           const { lead, scoreResult } = result.value;
           counts[scoreResult.tier] = (counts[scoreResult.tier] || 0) + 1;
-          if (scoreResult.score >= 7) {
+          if (scoreResult.score >= 5) {
             qualifiedFromThisRun.push({ ...lead, ...scoreResult });
           }
         } else {
