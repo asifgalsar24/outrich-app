@@ -26,8 +26,13 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
   }
   // Residential proxy required when running on cloud servers (Meta blocks datacenter IPs)
   if (process.env.PROXY_URL) {
-    launchOptions.proxy = { server: process.env.PROXY_URL };
-    console.log('[Scraper] Using proxy:', process.env.PROXY_URL.replace(/:\/\/.*@/, '://***@'));
+    const _p = new URL(process.env.PROXY_URL);
+    launchOptions.proxy = {
+      server: `${_p.protocol}//${_p.hostname}:${_p.port}`,
+      username: _p.username,
+      password: _p.password,
+    };
+    console.log('[Scraper] Using proxy:', `${_p.protocol}//${_p.hostname}:${_p.port}`);
   }
   const browser = await chromium.launch(launchOptions);
   const context = await browser.newContext({
