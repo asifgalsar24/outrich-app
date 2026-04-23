@@ -57,6 +57,7 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
 
     try {
       const text = await response.text();
+      console.log('[Scraper] GraphQL response (first 400):', text.slice(0, 400));
       if (!text.includes('page_name') && !text.includes('ad_archive_id')) return;
       _gqlMatched++;
       console.log('[Scraper] Matched response (first 200):', text.slice(0, 200));
