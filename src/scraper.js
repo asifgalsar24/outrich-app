@@ -38,16 +38,23 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
 
   const page = await context.newPage();
   const collectedAds = [];
+  let _gqlCount = 0, _gqlMatched = 0;
 
   // Intercept GraphQL responses that contain ad data
   page.on('response', async (response) => {
     const url = response.url();
+    if (url.includes('graphql')) {
+      _gqlCount++;
+      console.log('[Scraper] GraphQL URL:', url.slice(0, 120));
+    }
     if (!url.includes('facebook.com') && !url.includes('fb.com')) return;
     if (!url.includes('graphql') && !url.includes('api/graphql')) return;
 
     try {
       const text = await response.text();
       if (!text.includes('page_name') && !text.includes('ad_archive_id')) return;
+      _gqlMatched++;
+      console.log('[Scraper] Matched response (first 200):', text.slice(0, 200));
 
       // Facebook often returns multiple JSON objects per line (JSONP-like)
       const lines = text.split('\n').filter(l => l.trim().startsWith('{'));
@@ -64,6 +71,12 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
     const url = buildAdsLibraryUrl(keyword);
     console.log(`[Scraper] Opening: ${url}`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+
+    const title = await page.title();
+    console.log('[Scraper] Page title:', title);
+    if (title.toLowerCase().includes('log in') || title.toLowerCase().includes('sign up')) {
+      console.log('[Scraper] WARNING: Login wall detected — proxy may not be bypassing auth');
+    }
 
     // Dismiss cookie consent
     await dismissConsent(page);
@@ -82,6 +95,7 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
       console.log(`[Scraper] Scroll ${scrollRounds}: ${collectedAds.length} ads collected`);
     }
 
+    console.log(`[Scraper] GraphQL total=${_gqlCount} matched=${_gqlMatched}`);
   } finally {
     await browser.close();
   }
