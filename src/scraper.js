@@ -60,8 +60,11 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
 
     try {
       const text = await response.text();
-      console.log('[Scraper] GraphQL response (first 400):', text.slice(0, 400));
-      if (!text.includes('page_name') && !text.includes('ad_archive_id')) return;
+      if (
+        !text.includes('page_name') &&
+        !text.includes('ad_archive_id') &&
+        !text.includes('dynamic_filter_options')
+      ) return;
       _gqlMatched++;
       console.log('[Scraper] Matched response (first 200):', text.slice(0, 200));
 
@@ -90,16 +93,16 @@ async function scrapeMetaAds({ keyword, location = 'Israel', max_leads = 50 }) {
     // Dismiss cookie consent
     await dismissConsent(page);
 
-    // Wait for initial load
-    await page.waitForTimeout(4000);
+    // Wait for initial load — longer wait gives search_results_connection time to arrive
+    await page.waitForTimeout(10000);
 
-    // Scroll to trigger more loads
+    // Scroll to trigger more loads — at least 3 scrolls regardless of max_leads
     let scrollRounds = 0;
-    const maxScrolls = Math.ceil(max_leads / 10);
+    const maxScrolls = Math.max(3, Math.ceil(max_leads / 10));
 
     while (collectedAds.length < max_leads && scrollRounds < maxScrolls) {
       await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(4000);
       scrollRounds++;
       console.log(`[Scraper] Scroll ${scrollRounds}: ${collectedAds.length} ads collected`);
     }
@@ -155,6 +158,29 @@ async function dismissConsent(page) {
 function extractAdsFromGraphQL(obj, results, keyword) {
   // Recursively walk JSON to find ad objects
   if (!obj || typeof obj !== 'object') return;
+
+  // Extract from dynamic_filter_options.pages (the filter-panel response)
+  // Contains: display_name (company), key (page ID), count (active ads)
+  if (Array.isArray(obj.pages) && obj.pages.length > 0 &&
+      obj.pages[0]?.display_name && obj.pages[0]?.key) {
+    for (const p of obj.pages) {
+      if (!p.display_name || !p.key) continue;
+      results.push({
+        company_name: p.display_name,
+        ad_id: null,
+        ad_url: `https://www.facebook.com/ads/library/?view_all_page_id=${p.key}`,
+        ad_type: 'image',
+        website_url: '',
+        facebook_page: `https://www.facebook.com/${p.key}`,
+        niche: keyword,
+        location: 'Israel',
+        active_ads_count: typeof p.count === 'number' ? p.count : 1,
+        page_followers: null,
+        source: 'meta_ads',
+      });
+    }
+    return;
+  }
 
   // Detect an ad node by presence of page_name + ad_archive_id
   if (obj.page_name && (obj.ad_archive_id || obj.id)) {
