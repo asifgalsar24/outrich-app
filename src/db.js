@@ -11,18 +11,18 @@ const supabase = createClient(
 // ── Leads ────────────────────────────────────────────────────────────────────
 
 async function insertLeads(leads, client_id) {
-  const pages = leads.map((r) => r.facebook_page).filter(Boolean);
+  const adIds = leads.map((r) => r.ad_id).filter(Boolean);
 
-  // Fetch existing leads for THIS client only
+  // Fetch existing leads for THIS client by ad_id (the unique key)
   let existingMap = new Map();
-  if (pages.length > 0) {
+  if (adIds.length > 0) {
     let query = supabase
       .from('leads')
-      .select('id, facebook_page, lemlist_status')
-      .in('facebook_page', pages);
+      .select('id, ad_id, lemlist_status')
+      .in('ad_id', adIds);
     if (client_id) query = query.eq('client_id', client_id);
     const { data: existing } = await query;
-    for (const row of (existing || [])) existingMap.set(row.facebook_page, row);
+    for (const row of (existing || [])) existingMap.set(row.ad_id, row);
   }
 
   const toInsert = [];
@@ -30,7 +30,7 @@ async function insertLeads(leads, client_id) {
   let skippedSent = 0;
 
   for (const lead of leads) {
-    const existing = lead.facebook_page ? existingMap.get(lead.facebook_page) : null;
+    const existing = lead.ad_id ? existingMap.get(lead.ad_id) : null;
     if (!existing) {
       toInsert.push({ ...lead, client_id: client_id || null });
     } else if (existing.lemlist_status === 'sent') {
