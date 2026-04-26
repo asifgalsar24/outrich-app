@@ -91,12 +91,16 @@ function createServer() {
           const lead = await db.getLeadById(lead_id);
           if (!lead) { res.writeHead(404); res.end('Lead not found'); return; }
 
-          // Research if not already done
+          // Research if not already done — skip gracefully if it fails
           let enriched = lead;
           if (!lead.perplexity_research) {
-            const research = await researchLead(lead);
-            await db.updateLeadResearch(lead_id, research);
-            enriched = { ...lead, perplexity_research: research };
+            try {
+              const research = await researchLead(lead);
+              await db.updateLeadResearch(lead_id, research);
+              enriched = { ...lead, perplexity_research: research };
+            } catch (researchErr) {
+              console.warn('[write-email] Research failed, continuing without:', researchErr.message);
+            }
           }
 
           const emailResult = await writeAndCheckEmail(enriched, voice_profile);
