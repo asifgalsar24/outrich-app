@@ -2,43 +2,57 @@
 
 const axios = require('axios');
 
-const OPENROUTER_API = 'https://openrouter.ai/api/v1/chat/completions';
-const PERPLEXITY_MODEL = 'perplexity/sonar';
+const PERPLEXITY_API = 'https://api.perplexity.ai/chat/completions';
+const MODEL = 'sonar-pro';
 
-/**
- * Research a single lead using Perplexity via OpenRouter.
- * Returns a research string (150 words max).
- */
+async function scrapeWebsite(url) {
+  if (!url) return null;
+  try {
+    const { data } = await axios.get(url, {
+      timeout: 8_000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
+    });
+    const text = data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000);
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 async function researchLead(lead) {
-  const prompt = [
-    `Research this Israeli business for cold outreach purposes.`,
-    `Business name: ${lead.company_name}`,
-    `Website: ${lead.website_url || 'not available'}`,
-    `Facebook page: ${lead.facebook_page || 'not available'}`,
+  const websiteText = await scrapeWebsite(lead.website_url);
+
+  const contextBlock = [
+    `Business: ${lead.company_name}`,
     `Industry: ${lead.niche}`,
+    lead.website_url   ? `Website: ${lead.website_url}`    : null,
+    lead.facebook_page ? `Facebook: ${lead.facebook_page}` : null,
+    websiteText ? `\nWebsite content (extracted):\n${websiteText}` : null,
+  ].filter(Boolean).join('\n');
+
+  const prompt = [
+    `You are researching an Israeli business for a personalized cold email about video/content production.`,
     ``,
-    `Find and summarize (150 words max, be specific and factual):`,
-    `1) What they do and who their target customers are`,
-    `2) Recent campaigns, promotions, or news`,
-    `3) What they are known for / their main value proposition`,
-    `4) Potential pain points with their current content or media quality`,
-    `5) One specific observation from their ads or online presence`,
+    contextBlock,
     ``,
-    `If you cannot find information about this specific business, say so briefly and describe what businesses in this niche typically need.`,
+    `Give me exactly 3 email hooks (be specific, not generic):`,
+    `1. VALIDATION — one thing they are doing well in their marketing or content`,
+    `2. GAP — one visible weakness or missed opportunity in their content/online presence`,
+    `3. OBSERVATION — one specific detail from their website or ads that shows you looked`,
+    ``,
+    `Max 180 words total. Use Hebrew business context. If you can't find specific info, say so briefly.`,
   ].join('\n');
 
   const response = await axios.post(
-    OPENROUTER_API,
+    PERPLEXITY_API,
     {
-      model: PERPLEXITY_MODEL,
+      model: MODEL,
       messages: [{ role: 'user', content: prompt }],
     },
     {
       headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://legacymedia.co.il',
-        'X-Title': 'OutRich Lead Research',
       },
       timeout: 30_000,
     }
@@ -47,26 +61,16 @@ async function researchLead(lead) {
   return response.data.choices?.[0]?.message?.content || 'Research unavailable.';
 }
 
-/**
- * Research all qualified leads in sequence.
- */
 async function researchLeads(leads, onProgress) {
   for (let i = 0; i < leads.length; i++) {
     const lead = leads[i];
     try {
       const research = await researchLead(lead);
-
-      if (onProgress) {
-        await onProgress(lead.id, research, i + 1, leads.length);
-      }
-
-      // Brief pause between Perplexity calls
+      if (onProgress) await onProgress(lead.id, research, i + 1, leads.length);
       if (i < leads.length - 1) await sleep(500);
     } catch (err) {
       console.error(`[Researcher] Failed for lead ${lead.id}: ${err.message}`);
-      if (onProgress) {
-        await onProgress(lead.id, 'Research failed.', i + 1, leads.length);
-      }
+      if (onProgress) await onProgress(lead.id, 'Research failed.', i + 1, leads.length);
     }
   }
 }

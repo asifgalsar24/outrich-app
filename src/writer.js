@@ -72,10 +72,12 @@ function buildWriterSystem(profile = {}) {
   lines.push(`- כתוב בעברית טבעית, ${tone_description}, לא מתורגמת`);
   lines.push(`- אורך מקסימלי: ${email_max_words} מילים`);
   lines.push('- אסור להתחיל בפתיחה גנרית ("מקווה שהכל בסדר" וכדומה)');
+  lines.push('- השתמש ב-3 ההוקס מהמחקר — OBSERVATION בפתיחה, GAP בנקודת הכאב, VALIDATION ברמיזה');
+  lines.push('- אם אין מחקר — המצא פרט ספציפי שנשמע אמיתי לנישה הזו');
   lines.push('');
   lines.push('מבנה המייל:');
-  lines.push('1. פתיחה עם תצפית ספציפית על הפרסום שלהם (לא גנרי)');
-  lines.push('2. נקודת כאב ספציפית שזיהית בתוכן שלהם');
+  lines.push('1. פתיחה עם ה-OBSERVATION מהמחקר — ציין פרט ספציפי שראית (לא "ראיתי את הפרסומות שלך")');
+  lines.push('2. ה-GAP — נקודת הכאב הספציפית שזיהית בתוכן שלהם');
   lines.push('3. שורה אחת על איך אתה פותר את זה');
   if (portfolio_url.trim()) {
     const desc = portfolio_description.trim() || 'אפשר לראות דוגמאות מעבודות שלנו:';
@@ -102,7 +104,15 @@ async function writeEmail(lead, voiceProfile = {}) {
     `שם העסק: ${lead.company_name}`,
     `תחום: ${lead.niche}`,
     `סוג מודעות: ${lead.ad_type}`,
-    `מחקר על העסק: ${lead.perplexity_research || 'אין מידע'}`,
+    ``,
+    `תוצאות המחקר (3 הוקס):`,
+    lead.perplexity_research || 'אין מידע מחקר',
+    ``,
+    `הוראות שימוש בהוקס:`,
+    `- פתח עם ה-OBSERVATION — ציין את הפרט הספציפי הזה בשורה הראשונה`,
+    `- השתמש ב-GAP בתור נקודת הכאב בשורה השנייה`,
+    `- אפשר לרמוז ל-VALIDATION כדי להראות שעשית שיעורי בית`,
+    ``,
     `זווית פנייה: ${lead.outreach_angle || 'שדרוג תוכן'}`,
     `שירות מומלץ: ${lead.suggested_service || 'הפקת וידאו'}`,
   ].join('\n');
