@@ -234,7 +234,7 @@ function buildLead(ad, keyword) {
       typeof ad.active_ads_count === 'number' ? ad.active_ads_count :
       Array.isArray(ad.collated_results) ? ad.collated_results.length :
       typeof ad.ad_count === 'number' ? ad.ad_count :
-      1,
+      null,
     page_followers: ad.page_like_count || null,
     source: 'meta_ads',
   };

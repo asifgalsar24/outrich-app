@@ -7,10 +7,10 @@ const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 const SYSTEM_PROMPT = `אתה סוכן ניקוד לידים עבור OutRich — שירות הפקת תוכן וידאו ומדיה של Legacy Media (חברה ישראלית).
 דרג כל עסק מ-1 עד 10 לפי הסבירות שהוא יזדקק לתוכן וידאו מקצועי וישלם עליו.
 
-אותות ניקוד — מספר מודעות פעילות (אותות תקציב פרסום):
-+1 נקודה: 2–4 מודעות פעילות (מתחיל להשקיע בפרסום)
-+2 נקודות: 5–9 מודעות פעילות (מפרסם רציני עם תקציב ברור)
-+3 נקודות: 10+ מודעות פעילות (תקציב מדיה גבוה — לקוח פרימיום)
+אותות ניקוד — מספר מודעות שנמצאו בסריקה (סימן לתקציב פרסום, לא בהכרח המספר הכולל):
++1 נקודה: 2–3 מודעות שנמצאו (מתחיל להשקיע בפרסום)
++2 נקודות: 4–7 מודעות שנמצאו (מפרסם רציני עם תקציב ברור)
++3 נקודות: 8+ מודעות שנמצאו (תקציב מדיה גבוה — לקוח פרימיום)
 
 אותות ניקוד נוספים:
 +3 נקודות: סוג המודעה הוא וידאו (כבר משקיע בוידאו — צריך שדרוג איכות)
@@ -34,7 +34,7 @@ async function scoreLead(lead) {
     `Score this Israeli business:`,
     `Name: ${lead.company_name || 'Unknown'}`,
     `Ad type: ${lead.ad_type}`,
-    `Active ads: ${lead.active_ads_count}`,
+    `Ads found during scrape: ${lead.active_ads_count} (minimum count — actual may be higher)`,
     `Page followers: ${lead.page_followers ?? 'unknown'}`,
     `Website: ${lead.website_url || 'none'}`,
     `Niche: ${lead.niche}`,
