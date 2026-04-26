@@ -2,6 +2,9 @@
 
 const http = require('http');
 const { runPipeline } = require('./pipeline');
+const { writeAndCheckEmail } = require('./writer');
+const { researchLead } = require('./researcher');
+const db = require('./db');
 
 function createServer() {
   const server = http.createServer(async (req, res) => {
@@ -68,6 +71,43 @@ function createServer() {
         }
 
         res.end();
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/write-email') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      req.on('end', async () => {
+        let lead_id, voice_profile;
+        try {
+          ({ lead_id, voice_profile = {} } = JSON.parse(body));
+        } catch {
+          res.writeHead(400); res.end('Invalid JSON'); return;
+        }
+        if (!lead_id) { res.writeHead(400); res.end('lead_id is required'); return; }
+
+        try {
+          const lead = await db.getLeadById(lead_id);
+          if (!lead) { res.writeHead(404); res.end('Lead not found'); return; }
+
+          // Research if not already done
+          let enriched = lead;
+          if (!lead.perplexity_research) {
+            const research = await researchLead(lead);
+            await db.updateLeadResearch(lead_id, research);
+            enriched = { ...lead, perplexity_research: research };
+          }
+
+          const emailResult = await writeAndCheckEmail(enriched, voice_profile);
+          await db.updateLeadEmail(lead_id, emailResult);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(emailResult));
+        } catch (err) {
+          console.error('[Server] write-email error:', err.message);
+          res.writeHead(500); res.end(err.message);
+        }
       });
       return;
     }
