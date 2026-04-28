@@ -211,11 +211,13 @@ function groupLeadsByCompany(leads) {
     const facebook_page = lead.facebook_page || `name:${(lead.company_name || '').toLowerCase().trim()}`;
 
     if (!map.has(key)) {
-      map.set(key, { ...lead, facebook_page, active_ads_count: 1 });
+      map.set(key, { ...lead, facebook_page, active_ads_count: lead.active_ads_count ?? 1 });
     } else {
       const g = map.get(key);
-      // Count distinct ad objects found — reliable regardless of API field availability
-      g.active_ads_count = (g.active_ads_count || 0) + 1;
+      // Use the highest known count — collation_count from Meta is the real total
+      if ((lead.active_ads_count ?? 0) > (g.active_ads_count ?? 0)) {
+        g.active_ads_count = lead.active_ads_count;
+      }
       // Video beats carousel beats image
       const rank = { video: 3, carousel: 2, image: 1 };
       if ((rank[lead.ad_type] || 0) > (rank[g.ad_type] || 0)) g.ad_type = lead.ad_type;

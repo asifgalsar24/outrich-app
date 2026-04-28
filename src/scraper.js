@@ -220,7 +220,7 @@ function buildLead(ad, keyword) {
   const adType = hasVideo ? 'video' : hasCarousel ? 'carousel' : 'image';
 
   // Extract actual ad copy text from the GraphQL snapshot
-  const bodyRaw = creative.body?.markup?.__html || creative.body || '';
+  const bodyRaw = creative.body?.markup?.__html || (typeof creative.body === 'string' ? creative.body : '');
   const bodyText = String(bodyRaw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   const adTitle = creative.title || creative.ad_creative_title || '';
   const adCaption = creative.caption || creative.link_description || '';
