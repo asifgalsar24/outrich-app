@@ -219,11 +219,19 @@ function buildLead(ad, keyword) {
   const hasCarousel = !!(creative.cards?.length > 1);
   const adType = hasVideo ? 'video' : hasCarousel ? 'carousel' : 'image';
 
+  // Extract actual ad copy text from the GraphQL snapshot
+  const bodyRaw = creative.body?.markup?.__html || creative.body || '';
+  const bodyText = String(bodyRaw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const adTitle = creative.title || creative.ad_creative_title || '';
+  const adCaption = creative.caption || creative.link_description || '';
+  const ad_copy = [adTitle, bodyText, adCaption].filter(Boolean).join(' | ').slice(0, 600) || null;
+
   return {
     company_name: name,
     ad_url: adId ? `https://www.facebook.com/ads/library/?id=${adId}` : '',
     ad_type: adType,
     ad_id: adId,
+    ad_copy,
     website_url: creative.link_url || creative.linkUrl || '',
     facebook_page: ad.page_profile_uri || (ad.page_id ? `https://www.facebook.com/${ad.page_id}` : ''),
     niche: keyword,

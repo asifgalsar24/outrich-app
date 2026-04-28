@@ -4,19 +4,29 @@ const axios = require('axios');
 
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 
-const CHECKER_SYSTEM = `You are a quality checker for Hebrew cold emails. Review the email and return ONLY valid JSON, no other text.
-
-Check all 5 criteria:
-1. Is it under the word limit?
-2. Does it reference something SPECIFIC about this business (not generic boilerplate)?
-3. Is the Hebrew natural and conversational, not robotic or translated-sounding?
-4. Does it have exactly one clear CTA (call to action)?
-5. Does it avoid generic openers like "מקווה שהכל בסדר" or similar?
-
-If approved=false, rewrite the email to fix all issues and put the corrected version in final_email.
-If approved=true, copy the original email text verbatim to final_email.
-
-Return ONLY this JSON: { "approved": true/false, "issue": "reason if not approved or empty string", "final_email": "the approved or corrected email" }`;
+function buildCheckerSystem(voiceProfile = {}) {
+  const forbidden = (voiceProfile.phrases_to_avoid || '').trim();
+  const lines = [
+    `You are a quality checker for Hebrew cold emails. Review the email and return ONLY valid JSON, no other text.`,
+    ``,
+    `Check all criteria:`,
+    `1. Does it reference something SPECIFIC about this business (not generic boilerplate)?`,
+    `2. Is the Hebrew natural and conversational, not robotic or translated-sounding?`,
+    `3. Does it have exactly one clear CTA (call to action)?`,
+    `4. Does it avoid generic openers like "מקווה שהכל בסדר" or similar?`,
+    `5. Is it short — no more than 6 sentences?`,
+  ];
+  if (forbidden) {
+    lines.push(`6. Does it NOT contain any of these banned phrases: ${forbidden}`);
+    lines.push(`   If any banned phrase appears, approved=false and rewrite without it.`);
+  }
+  lines.push(``);
+  lines.push(`If approved=false, rewrite the email to fix all issues and put the corrected version in final_email.`);
+  lines.push(`If approved=true, copy the original email text verbatim to final_email.`);
+  lines.push(``);
+  lines.push(`Return ONLY this JSON: { "approved": true/false, "issue": "reason if not approved or empty string", "final_email": "the approved or corrected email" }`);
+  return lines.join('\n');
+}
 
 /**
  * Build a dynamic writer system prompt from the client's voice profile.
@@ -51,12 +61,6 @@ function buildWriterSystem(profile = {}) {
   lines.push('');
   lines.push(`טון הכתיבה: ${tone_description}`);
 
-  if (example_writing.trim()) {
-    lines.push('');
-    lines.push('דוגמה לסגנון כתיבה (חקה את הסגנון הזה בדיוק!):');
-    lines.push(`"${example_writing.trim()}"`);
-  }
-
   if (phrases_to_use.trim()) {
     lines.push('');
     lines.push(`ביטויים שאפשר להשתמש בהם: ${phrases_to_use}`);
@@ -67,27 +71,33 @@ function buildWriterSystem(profile = {}) {
     lines.push(`ביטויים שאסור בהחלט להשתמש: ${phrases_to_avoid}`);
   }
 
-  lines.push('');
-  lines.push('חוקים:');
-  lines.push(`- כתוב בעברית טבעית, ${tone_description}, לא מתורגמת`);
-  lines.push(`- אורך מקסימלי: ${email_max_words} מילים`);
-  lines.push('- אסור להתחיל בפתיחה גנרית ("מקווה שהכל בסדר" וכדומה)');
-  lines.push('- השתמש ב-3 ההוקס מהמחקר — OBSERVATION בפתיחה, GAP בנקודת הכאב, VALIDATION ברמיזה');
-  lines.push('- אם אין מחקר — המצא פרט ספציפי שנשמע אמיתי לנישה הזו');
-  lines.push('');
-  lines.push('מבנה המייל:');
-  lines.push('1. פתיחה עם ה-OBSERVATION מהמחקר — ציין פרט ספציפי שראית (לא "ראיתי את הפרסומות שלך")');
-  lines.push('2. ה-GAP — נקודת הכאב הספציפית שזיהית בתוכן שלהם');
-  lines.push('3. שורה אחת על איך אתה פותר את זה');
-  if (portfolio_url.trim()) {
-    const desc = portfolio_description.trim() || 'אפשר לראות דוגמאות מעבודות שלנו:';
-    lines.push(`4. שורה אחת עם הפורטפוליו — בדיוק כך: "${desc} ${portfolio_url.trim()}"`);
-    lines.push(`5. ${ctaGuide}`);
+  if (example_writing.trim()) {
+    lines.push('');
+    lines.push('כך אתה כותב. כתוב בדיוק באותו סגנון, אורך ותחושה:');
+    lines.push('---');
+    lines.push(example_writing.trim());
+    lines.push('---');
+    lines.push('');
+    lines.push('הנחיות למייל החדש:');
+    lines.push('- אורך זהה לדוגמה — לא יותר, לא פחות');
+    lines.push('- אותה תחושה: חמה, ישירה, אנושית — לא רובוטית ולא תבניתית');
+    lines.push('- פתח עם ה-OBSERVATION מהמחקר — ציין פרט ספציפי שראית (לא "ראיתי את הפרסומות שלך")');
+    lines.push('- שלב את ה-GAP בטבעיות — הפער שזיהית בתוכן שלהם');
+    lines.push('- שורה קצרה על מה שאתה מציע');
   } else {
-    lines.push(`4. ${ctaGuide}`);
+    lines.push('');
+    lines.push(`טון: ${tone_description || 'חם, ישיר, אנושי, לא רובוטי'}`);
+    lines.push(`אורך מקסימלי: ${email_max_words} מילים`);
+    lines.push('- אל תתחיל בפתיחה גנרית ("מקווה שהכל בסדר" וכדומה)');
+    lines.push('- פתח עם תצפית ספציפית מהמחקר');
+    lines.push('- זהה פער ספציפי, הצע פתרון');
   }
-  lines.push('');
-  lines.push('כתוב כאילו אתה בן אדם אמיתי שבאמת הסתכל על הפרסומות שלהם.');
+
+  if (portfolio_url.trim()) {
+    const desc = portfolio_description.trim() || 'דוגמאות לעבודות שלנו:';
+    lines.push(`- הוסף שורה עם הפורטפוליו: "${desc} ${portfolio_url.trim()}"`);
+  }
+  lines.push(`- ${ctaGuide}`);
 
   return lines.join('\n');
 }
@@ -142,7 +152,7 @@ async function writeEmail(lead, voiceProfile = {}) {
  * Quality-check an email draft with Claude.
  * Returns { approved, issue, final_email }
  */
-async function checkEmail(companyName, emailDraft) {
+async function checkEmail(companyName, emailDraft, voiceProfile = {}) {
   const userContent = `Review this email for ${companyName}:\n\n${emailDraft}`;
 
   const response = await axios.post(
@@ -150,7 +160,7 @@ async function checkEmail(companyName, emailDraft) {
     {
       model: 'claude-sonnet-4-6',
       max_tokens: 600,
-      system: CHECKER_SYSTEM,
+      system: buildCheckerSystem(voiceProfile),
       messages: [{ role: 'user', content: userContent }],
     },
     {
@@ -178,7 +188,7 @@ async function checkEmail(companyName, emailDraft) {
 async function writeAndCheckEmail(lead, voiceProfile = {}) {
   const draft = await writeEmail(lead, voiceProfile);
   await sleep(1000);
-  const checked = await checkEmail(lead.company_name, draft);
+  const checked = await checkEmail(lead.company_name, draft, voiceProfile);
 
   return {
     hebrew_email_draft: checked.final_email,

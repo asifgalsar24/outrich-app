@@ -24,11 +24,11 @@ async function researchLead(lead) {
   const contextBlock = [
     `Business: ${lead.company_name}`,
     `Industry: ${lead.niche}`,
-    `Ad format they run: ${lead.ad_type || 'unknown'}`,
-    lead.active_ads_count ? `Ads found during scrape: ${lead.active_ads_count}` : null,
-    lead.facebook_page    ? `Facebook: ${lead.facebook_page}`                    : null,
-    lead.website_url      ? `Website: ${lead.website_url}`                       : null,
-    websiteText           ? `\nWebsite content (scraped):\n${websiteText}`        : null,
+    `Ad format: ${lead.ad_type || 'unknown'}`,
+    lead.ad_copy       ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"`  : null,
+    lead.website_url   ? `Website: ${lead.website_url}`                                  : null,
+    lead.facebook_page ? `Facebook: ${lead.facebook_page}`                               : null,
+    websiteText        ? `\nWebsite content (scraped):\n${websiteText}`                  : null,
   ].filter(Boolean).join('\n');
 
   const response = await axios.post(CLAUDE_API, {
@@ -42,12 +42,12 @@ async function researchLead(lead) {
         ``,
         contextBlock,
         ``,
-        `Give exactly 3 hooks based ONLY on what is stated above:`,
-        `1. VALIDATION — one specific thing they are doing well (e.g. consistent ad format, clear CTA on site, volume of ads)`,
-        `2. GAP — one concrete weakness visible in their marketing (e.g. only static images, no video, thin website copy)`,
-        `3. OBSERVATION — one specific detail proving you looked (cite a number, a format, or something you read on their site)`,
+        `Give exactly 3 hooks. If ad copy is available, every hook MUST reference something specific from that text.`,
+        `1. VALIDATION — one thing they do well (quote or reference something from their ad or website)`,
+        `2. GAP — one concrete weakness (something missing or weak in their actual content)`,
+        `3. OBSERVATION — one specific detail from their ads or site that proves you looked (name it exactly)`,
         ``,
-        `Max 150 words. Every statement must reference a real fact from the data above.`,
+        `Max 150 words. Every statement must be grounded in the real data above. Do not invent.`,
       ].join('\n'),
     }],
   }, {
