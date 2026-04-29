@@ -21,14 +21,19 @@ async function scrapeWebsite(url) {
 async function researchLead(lead) {
   const websiteText = await scrapeWebsite(lead.website_url);
 
+  // Don't treat template-variable-only copy as real ad content
+  const hasRealAdCopy = lead.ad_copy &&
+    lead.ad_copy.length > 20 &&
+    !lead.ad_copy.includes('{{');
+
   const contextBlock = [
     `Business: ${lead.company_name}`,
     `Industry: ${lead.niche}`,
     `Ad format: ${lead.ad_type || 'unknown'}`,
-    lead.ad_copy       ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"`  : null,
-    lead.website_url   ? `Website: ${lead.website_url}`                                  : null,
-    lead.facebook_page ? `Facebook: ${lead.facebook_page}`                               : null,
-    websiteText        ? `\nWebsite content (scraped):\n${websiteText}`                  : null,
+    hasRealAdCopy      ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"` : null,
+    lead.website_url   ? `Website: ${lead.website_url}`                                : null,
+    lead.facebook_page ? `Facebook: ${lead.facebook_page}`                             : null,
+    websiteText        ? `\nWebsite content (scraped):\n${websiteText}`                : null,
   ].filter(Boolean).join('\n');
 
   const response = await axios.post(CLAUDE_API, {
@@ -38,17 +43,23 @@ async function researchLead(lead) {
       role: 'user',
       content: [
         `אתה מכין מחקר קצר על עסק ישראלי לפני כתיבת מייל קר בנושא הפקת תוכן וידאו.`,
-        `התמקד רק בשיווק שלהם — מודעות, וידאו, ויזואל, נוכחות אונליין. אל תמציא עובדות.`,
+        `התמקד רק בשיווק שלהם — מודעות, וידאו, ויזואל, נוכחות אונליין.`,
         ``,
         contextBlock,
         ``,
-        `כתוב בעברית. תן בדיוק 3 נקודות. אם יש טקסט מודעה — כל נקודה חייבת להתבסס על מילים אמיתיות מהמודעה.`,
+        `כללי ברזל:`,
+        `- כתוב בעברית בלבד.`,
+        `- כל נקודה חייבת להתבסס על מילים או נתונים אמיתיים מהמידע לעיל — לא על הנחות.`,
+        `- אם יש טקסט מודעה אמיתי — צטט ממנו ישירות.`,
+        `- אם אין מספיק נתונים לנקודה מסוימת — דלג עליה. עדיף 2 נקודות חזקות מ-3 חלשות.`,
+        `- אל תמציא עובדות. אל תשתמש בניסוחים כמו "כנראה" או "ייתכן".`,
         ``,
-        `✅ חוזק — דבר אחד שהם עושים טוב בשיווק (צטט או הזכר מהמודעה/אתר)`,
+        `כתוב 2–3 נקודות בפורמט הזה:`,
+        `✅ חוזק — דבר אחד שהם עושים טוב בשיווק (צטט או הזכר ספציפית מהמודעה/אתר)`,
         `❌ פער — חולשה ספציפית שנראית בתוכן שלהם`,
         `👁 תצפית — פרט אחד ספציפי שמוכיח שבאמת הסתכלת (מספר, פורמט, משפט מהמודעה)`,
         ``,
-        `מקסימום 120 מילים. כל משפט חייב להתבסס על נתון אמיתי מהמידע לעיל.`,
+        `מקסימום 120 מילים סה"כ.`,
       ].join('\n'),
     }],
   }, {

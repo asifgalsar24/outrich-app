@@ -219,12 +219,31 @@ function buildLead(ad, keyword) {
   const hasCarousel = !!(creative.cards?.length > 1);
   const adType = hasVideo ? 'video' : hasCarousel ? 'carousel' : 'image';
 
-  // Extract actual ad copy text from the GraphQL snapshot
-  const bodyRaw = creative.body?.markup?.__html || (typeof creative.body === 'string' ? creative.body : '');
+  // Try every known path Meta uses for body text
+  const bodyRaw =
+    creative.body?.markup?.__html ||
+    creative.body?.__html ||
+    creative.body?.text ||
+    (typeof creative.body === 'string' ? creative.body : '') ||
+    (Array.isArray(creative.cards) && creative.cards.length > 0
+      ? (creative.cards[0]?.body?.markup?.__html ||
+         creative.cards[0]?.body?.__html ||
+         creative.cards[0]?.body?.text ||
+         (typeof creative.cards[0]?.body === 'string' ? creative.cards[0].body : ''))
+      : '');
+
   const bodyText = String(bodyRaw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const adTitle = creative.title || creative.ad_creative_title || '';
-  const adCaption = creative.caption || creative.link_description || '';
-  const ad_copy = [adTitle, bodyText, adCaption].filter(Boolean).join(' | ').slice(0, 600) || null;
+
+  // Strip Facebook Dynamic Ad template vars ({{product.name}} etc.) from title/caption
+  const stripVars = (s) => (s || '').replace(/\{\{[^}]+\}\}/g, '').replace(/\s+/g, ' ').trim();
+  const adTitle   = stripVars(creative.title || creative.ad_creative_title || '');
+  const adCaption = stripVars(creative.caption || creative.link_description || '');
+
+  // Body first — richest, most reliable. Title/caption as supplements.
+  const ad_copy = [bodyText, adTitle, adCaption]
+    .filter(s => s && s.length > 3)
+    .join(' | ')
+    .slice(0, 800) || null;
 
   return {
     company_name: name,
