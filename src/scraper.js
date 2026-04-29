@@ -89,12 +89,14 @@ async function scrapeOnce({ keyword, max_leads, proxyConfig }) {
       // Only process responses with real ad nodes (not filter options)
       if (!text.includes('page_name') && !text.includes('ad_archive_id')) return;
       _gqlMatched++;
-      console.log('[Scraper] Matched response (first 200):', text.slice(0, 200));
+      console.log('[Scraper] Matched GQL response (first 400):', text.slice(0, 400));
 
       const lines = text.split('\n').filter(l => l.trim().startsWith('{'));
       for (const line of lines) {
         try {
           const json = JSON.parse(line);
+          // Log top-level data keys to diagnose path changes
+          if (json?.data) console.log('[Scraper] GQL data keys:', Object.keys(json.data));
           extractFromSearchResults(json, collectedAds, keyword);
         } catch { /* skip malformed lines */ }
       }
@@ -170,23 +172,39 @@ async function dismissConsent(page) {
       'button[title="Allow all cookies"]',
       'button:has-text("Allow all cookies")',
       '[aria-label="Allow all cookies"]',
+      // Hebrew variants (shown when locale is he-IL)
+      'button:has-text("אפשר את כל קובצי ה-Cookie")',
+      'button:has-text("אפשר הכל")',
+      'button:has-text("קבל הכל")',
+      'button:has-text("אישור")',
     ];
     for (const sel of selectors) {
-      const btn = page.locator(sel);
-      if (await btn.isVisible({ timeout: 2000 })) {
-        await btn.click();
-        await page.waitForTimeout(800);
-        return;
-      }
+      try {
+        const btn = page.locator(sel);
+        if (await btn.isVisible({ timeout: 1500 })) {
+          console.log(`[Scraper] Dismissing consent with: ${sel}`);
+          await btn.click();
+          await page.waitForTimeout(800);
+          return;
+        }
+      } catch { /* selector timed out */ }
     }
+    console.log('[Scraper] No consent dialog found');
   } catch { /* no consent dialog */ }
 }
 
 // Navigate directly to search_results_connection.edges — the only path that contains
 // keyword-filtered active ads. Avoids picking up sidebar/featured/related ad nodes.
 function extractFromSearchResults(json, results, keyword) {
-  const edges = json?.data?.ad_library_main?.search_results_connection?.edges;
+  // Try all known paths Meta has used for this data across API versions
+  const edges =
+    json?.data?.ad_library_main?.search_results_connection?.edges ||
+    json?.data?.ad_library_main?.ads?.edges ||
+    json?.data?.ad_library_feed?.search_results_connection?.edges ||
+    json?.data?.search_results_connection?.edges;
+
   if (!Array.isArray(edges)) return;
+  if (edges.length > 0) console.log(`[Scraper] Found ${edges.length} edges in response`);
 
   for (const edge of edges) {
     const node = edge?.node;
