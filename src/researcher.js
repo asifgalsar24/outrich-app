@@ -29,7 +29,7 @@ async function researchLead(lead) {
   const contextBlock = [
     `Business: ${lead.company_name}`,
     `Industry: ${lead.niche}`,
-    `Ad format: ${lead.ad_type || 'unknown'}`,
+    `Ad format (confirmed): ${lead.ad_type || 'unknown'}`,
     hasRealAdCopy      ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"` : null,
     lead.website_url   ? `Website: ${lead.website_url}`                                : null,
     lead.facebook_page ? `Facebook: ${lead.facebook_page}`                             : null,
@@ -38,7 +38,7 @@ async function researchLead(lead) {
 
   const response = await axios.post(CLAUDE_API, {
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
+    max_tokens: 500,
     messages: [{
       role: 'user',
       content: [
@@ -53,6 +53,7 @@ async function researchLead(lead) {
         `- אם יש טקסט מודעה אמיתי — צטט ממנו ישירות.`,
         `- אם אין מספיק נתונים לנקודה מסוימת — דלג עליה. עדיף 2 נקודות חזקות מ-3 חלשות.`,
         `- אל תמציא עובדות. אל תשתמש בניסוחים כמו "כנראה" או "ייתכן".`,
+        `- אם Ad format הוא "video" — אל תציין "חסר וידאו" כפער. הם כבר מפרסמים בוידאו.`,
         ``,
         `כתוב 2–3 נקודות בפורמט הזה:`,
         `✅ חוזק — דבר אחד שהם עושים טוב בשיווק (צטט או הזכר ספציפית מהמודעה/אתר)`,

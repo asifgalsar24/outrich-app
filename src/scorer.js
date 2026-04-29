@@ -76,9 +76,9 @@ async function scoreLead(lead) {
   const fallback = {
     score: 5,
     tier: 'warm',
-    score_reasoning: 'Parse error — manual review needed',
-    suggested_service: 'Video production',
-    outreach_angle: 'General content upgrade',
+    score_reasoning: 'שגיאת עיבוד — נדרשת בדיקה ידנית',
+    suggested_service: 'הפקת וידאו',
+    outreach_angle: 'שדרוג תוכן כללי',
   };
 
   const result = parseJSON(cleanJSON(text), fallback);
@@ -125,6 +125,8 @@ function cleanJSON(text) {
   return text
     .replace(/```(?:json)?\s*/gi, '')
     .replace(/```/g, '')
+    .replace(/[""„]/g, '"')
+    .replace(/['']/g, "'")
     .trim();
 }
 
