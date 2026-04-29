@@ -122,15 +122,24 @@ async function scrapeOnce({ keyword, max_leads, proxyConfig }) {
     const maxScrolls = Math.max(3, Math.ceil(max_leads / 10));
 
     while (collectedAds.length < max_leads && scrollRounds < maxScrolls) {
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await page.waitForTimeout(4000);
+      try {
+        await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+        await page.waitForTimeout(4000);
+      } catch {
+        // Page closed or crashed mid-scroll — return what we collected so far
+        console.log('[Scraper] Page closed during scroll, returning collected ads early');
+        break;
+      }
       scrollRounds++;
       console.log(`[Scraper] Scroll ${scrollRounds}: ${collectedAds.length} ads collected`);
     }
 
     console.log(`[Scraper] GraphQL total=${_gqlCount} matched=${_gqlMatched}`);
+  } catch (err) {
+    // Non-scroll page errors (goto, title, consent) — log and fall through with whatever was collected
+    console.error(`[Scraper] Page error: ${err.message}`);
   } finally {
-    await browser.close();
+    try { await browser.close(); } catch { /* already closed */ }
   }
 
   // Deduplicate and limit
