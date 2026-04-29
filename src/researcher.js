@@ -7,12 +7,38 @@ const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 async function scrapeWebsite(url) {
   if (!url) return null;
   try {
-    const { data } = await axios.get(url, {
+    const { data: html } = await axios.get(url, {
       timeout: 8_000,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
     });
-    const text = data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000);
-    return text || null;
+
+    const clean = (s) => (s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const title = clean(html.match(/<title[^>]*>(.*?)<\/title>/is)?.[1] || '');
+    const metaDesc = clean(
+      html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1] || ''
+    );
+    const headings = [...html.matchAll(/<h[12][^>]*>(.*?)<\/h[12]>/gis)]
+      .map(m => clean(m[1]))
+      .filter(s => s.length > 2 && s.length < 120)
+      .slice(0, 6)
+      .join(' | ');
+    const body = html
+      .replace(/<(script|style|nav|footer|header)[^>]*>[\s\S]*?<\/\1>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 800);
+
+    const parts = [
+      title    ? `כותרת אתר: ${title}`  : null,
+      metaDesc ? `תיאור: ${metaDesc}`   : null,
+      headings ? `כותרות: ${headings}`   : null,
+      body     ? `תוכן: ${body}`         : null,
+    ].filter(Boolean);
+
+    return parts.length ? parts.join('\n').slice(0, 2000) : null;
   } catch {
     return null;
   }

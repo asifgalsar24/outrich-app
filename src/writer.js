@@ -6,26 +6,43 @@ const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 
 function buildCheckerSystem(voiceProfile = {}) {
   const forbidden = (voiceProfile.phrases_to_avoid || '').trim();
+  const example   = (voiceProfile.example_writing  || '').trim();
   const lines = [
-    `You are a quality checker for Hebrew cold emails. Review the email and return ONLY valid JSON, no other text.`,
+    `You are a quality checker for Hebrew cold emails. Return ONLY valid JSON, no other text.`,
     ``,
     `Check all criteria:`,
-    `1. Does it reference something SPECIFIC about this business (not generic boilerplate)?`,
-    `2. Is the Hebrew natural and conversational, not robotic or translated-sounding?`,
-    `3. Does it have exactly one clear CTA (call to action)?`,
-    `4. Does it avoid generic openers like "מקווה שהכל בסדר" or similar?`,
-    `5. Is it short — no more than 6 sentences?`,
+    `1. References something SPECIFIC about this business — not generic boilerplate`,
+    `2. Hebrew is natural and conversational — not robotic or translated-sounding`,
+    `3. Exactly one clear CTA`,
+    `4. Does NOT open with "מקווה שהכל בסדר" or similar filler`,
+    `5. Short — no more than 6 sentences`,
   ];
-  if (forbidden) {
-    lines.push(`6. Does it NOT contain any of these banned phrases: ${forbidden}`);
-    lines.push(`   If any banned phrase appears, approved=false and rewrite without it.`);
+  if (forbidden) lines.push(`6. Does NOT contain banned phrases: ${forbidden}`);
+  if (example) {
+    lines.push(``);
+    lines.push(`Voice match — the client's own example email (their style):`);
+    lines.push(`---`);
+    lines.push(example);
+    lines.push(`---`);
+    lines.push(`7. Does the email sound like the same person wrote both? Same length, directness, warmth. If not — rewrite to match.`);
   }
   lines.push(``);
-  lines.push(`If approved=false, rewrite the email to fix all issues and put the corrected version in final_email.`);
-  lines.push(`If approved=true, copy the original email text verbatim to final_email.`);
+  lines.push(`If approved=false, rewrite to fix all issues and put it in final_email.`);
+  lines.push(`If approved=true, copy the original verbatim to final_email.`);
   lines.push(``);
-  lines.push(`Return ONLY this JSON: { "approved": true/false, "issue": "reason if not approved or empty string", "final_email": "the approved or corrected email" }`);
+  lines.push(`Return ONLY: { "approved": true/false, "issue": "reason or empty string", "final_email": "..." }`);
   return lines.join('\n');
+}
+
+function parseResearchHooks(research) {
+  if (!research) return null;
+  const strength    = research.match(/✅[^❌👁]*(?:\n(?![❌👁])[^\n]*)*/)?.[0]
+    ?.replace(/✅\s*חוזק\s*[—–-]\s*/, '').trim() || null;
+  const gap         = research.match(/❌[^✅👁]*(?:\n(?![✅👁])[^\n]*)*/)?.[0]
+    ?.replace(/❌\s*פער\s*[—–-]\s*/, '').trim() || null;
+  const observation = research.match(/👁[^✅❌]*(?:\n(?![✅❌])[^\n]*)*/)?.[0]
+    ?.replace(/👁\s*תצפית\s*[—–-]\s*/, '').trim() || null;
+  return { strength, gap, observation };
 }
 
 /**
@@ -108,6 +125,13 @@ function buildWriterSystem(profile = {}) {
 async function writeEmail(lead, voiceProfile = {}) {
   const system = buildWriterSystem(voiceProfile);
 
+  const hooks = parseResearchHooks(lead.perplexity_research);
+  const hookSection = [
+    hooks?.observation ? `👁 פתח עם זה (שורה 1): ${hooks.observation}` : null,
+    hooks?.gap         ? `❌ נקודת הכאב (שורה 2): ${hooks.gap}` : null,
+    hooks?.strength    ? `✅ לציין בדרך (אופציונלי): ${hooks.strength}` : null,
+  ].filter(Boolean).join('\n');
+
   const userContent = [
     `כתוב מייל קר עבור העסק הזה:`,
     ``,
@@ -115,13 +139,8 @@ async function writeEmail(lead, voiceProfile = {}) {
     `תחום: ${lead.niche}`,
     `סוג מודעות: ${lead.ad_type}`,
     ``,
-    `תוצאות המחקר (3 הוקס):`,
-    lead.perplexity_research || 'אין מידע מחקר',
-    ``,
-    `הוראות שימוש בהוקס:`,
-    `- פתח עם ה-OBSERVATION — ציין את הפרט הספציפי הזה בשורה הראשונה`,
-    `- השתמש ב-GAP בתור נקודת הכאב בשורה השנייה`,
-    `- אפשר לרמוז ל-VALIDATION כדי להראות שעשית שיעורי בית`,
+    `תוצאות מחקר — השתמש בהם בסדר הבא:`,
+    hookSection || lead.perplexity_research || 'אין מידע מחקר',
     ``,
     `זווית פנייה: ${lead.outreach_angle || 'שדרוג תוכן'}`,
     `שירות מומלץ: ${lead.suggested_service || 'הפקת וידאו'}`,

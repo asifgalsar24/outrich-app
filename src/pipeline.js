@@ -225,6 +225,13 @@ function groupLeadsByCompany(leads) {
       if ((lead.page_followers || 0) > (g.page_followers || 0)) g.page_followers = lead.page_followers;
       // Keep a website if we don't have one yet
       if (!g.website_url && lead.website_url) g.website_url = lead.website_url;
+      // Collect up to 2 unique ad copy variants for richer research
+      if (lead.ad_copy && lead.ad_copy !== g.ad_copy && g.ad_copy) {
+        const combined = `${g.ad_copy}\n---\n${lead.ad_copy}`;
+        if (combined.length <= 1400) g.ad_copy = combined;
+      } else if (lead.ad_copy && !g.ad_copy) {
+        g.ad_copy = lead.ad_copy;
+      }
     }
   }
 
