@@ -204,7 +204,14 @@ function extractFromSearchResults(json, results, keyword) {
     json?.data?.search_results_connection?.edges;
 
   if (!Array.isArray(edges)) return;
-  if (edges.length > 0) console.log(`[Scraper] Found ${edges.length} edges in response`);
+  if (edges.length > 0) {
+    console.log(`[Scraper] Found ${edges.length} edges in response`);
+    const firstNode = edges[0]?.node;
+    if (firstNode) console.log('[Scraper] First node IG fields:', JSON.stringify({
+      page_instagram_accounts: firstNode.page_instagram_accounts,
+      instagram_actor: firstNode.instagram_actor,
+    }));
+  }
 
   for (const edge of edges) {
     const node = edge?.node;
@@ -223,10 +230,13 @@ function extractFromSearchResults(json, results, keyword) {
     for (const item of items) {
       const merged = {
         ...item,
-        page_name: item.page_name || node.page_name,
-        page_id: item.page_id || node.page_id,
-        page_profile_uri: item.page_profile_uri || node.page_profile_uri,
-        page_like_count: item.page_like_count || node.page_like_count,
+        page_name:               item.page_name               || node.page_name,
+        page_id:                 item.page_id                 || node.page_id,
+        page_profile_uri:        item.page_profile_uri        || node.page_profile_uri,
+        page_like_count:         item.page_like_count         || node.page_like_count,
+        // Instagram data lives at the page (node) level — propagate it to every item
+        page_instagram_accounts: item.page_instagram_accounts || node.page_instagram_accounts,
+        instagram_actor:         item.instagram_actor         || node.instagram_actor,
         _resolved_count: resolvedCount,
       };
       const ad = buildLead(merged, keyword);
