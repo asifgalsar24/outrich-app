@@ -3,7 +3,7 @@
 const db = require('./db');
 const { scrapeMetaAds } = require('./scraper');
 const { scoreLead } = require('./scorer');
-const { researchLead } = require('./researcher');
+const { researchLead, extractInstagramUrl } = require('./researcher');
 const { writeAndCheckEmail } = require('./writer');
 
 const SCORE_BATCH   = 5; // concurrent Claude scoring calls
@@ -81,6 +81,32 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
     await notify(
       `✅ שלב 2 הושלם!\n\n🔥 חם: *${counts.hot}* | 🌡 ביניים: *${counts.warm}* | ❄️ קר: *${counts.cold}*\n\nמתחיל מחקר על הלידים החמים והבינוניים (ציון 5+)...`
     );
+
+    // ── STEP 3.5: IG DISCOVERY — scan all lead websites for Instagram links ──
+    const toFindIg = inserted
+      .map(({ id, facebook_page }) => ({ id, ...(mergedByPage.get(facebook_page) || {}) }))
+      .filter(l => l.website_url && !l.instagram_page);
+
+    if (toFindIg.length > 0) {
+      await notify(`📸 מחפש אינסטגרם ב-${toFindIg.length} אתרים...`);
+      const IG_BATCH = 8;
+      let igFound = 0;
+      for (let i = 0; i < toFindIg.length; i += IG_BATCH) {
+        const batch = toFindIg.slice(i, i + IG_BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async (lead) => {
+            const url = await extractInstagramUrl(lead.website_url);
+            if (url) {
+              await db.updateLeadInstagram(lead.id, url);
+              return true;
+            }
+            return false;
+          })
+        );
+        igFound += results.filter(r => r.status === 'fulfilled' && r.value).length;
+      }
+      await notify(`   נמצאו ${igFound}/${toFindIg.length} לינקים לאינסטגרם מאתרי העסקים.`);
+    }
 
     // ── STEP 4: RESEARCH + WRITE + PUSH — parallel batches ───────────────────
     if (qualifiedFromThisRun.length === 0) {

@@ -4,6 +4,39 @@ const axios = require('axios');
 
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 
+const BLOCKED_IG = new Set([
+  'p', 'reel', 'reels', 'stories', 'explore', 'tv', 'accounts', 'share', 'direct', 'inbox',
+  'whatsapp', 'facebook', 'meta', 'instagram', 'google', 'youtube', 'tiktok',
+  'snapchat', 'twitter', 'x', 'linkedin', 'pinterest', 'shopify', 'wix', 'wordpress',
+  'paypal', 'apple', 'microsoft', 'amazon',
+]);
+
+function findInstagramInHtml(html) {
+  const allMatches = [...html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/gi)];
+  const candidates = allMatches
+    .map(m => ({ handle: m[1].toLowerCase(), url: `https://www.instagram.com/${m[1]}/` }))
+    .filter(({ handle }) => handle.length > 1 && !BLOCKED_IG.has(handle));
+  const unique = [...new Map(candidates.map(c => [c.handle, c])).values()];
+  return unique[0]?.url || null;
+}
+
+/**
+ * Lightweight Instagram URL extractor — just fetches the website and scans for an IG link.
+ * No Claude, no content parsing. Used for the fast IG discovery pass in the pipeline.
+ */
+async function extractInstagramUrl(websiteUrl) {
+  if (!websiteUrl) return null;
+  try {
+    const { data: html } = await axios.get(websiteUrl, {
+      timeout: 6_000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
+    });
+    return findInstagramInHtml(html);
+  } catch {
+    return null;
+  }
+}
+
 async function scrapeWebsite(url) {
   if (!url) return { content: null, instagram_url: null };
   try {
@@ -38,19 +71,7 @@ async function scrapeWebsite(url) {
       body     ? `תוכן: ${body}`         : null,
     ].filter(Boolean);
 
-    // Extract Instagram profile URL — collect ALL matches, filter known non-business accounts
-    const BLOCKED_IG = new Set([
-      'p', 'reel', 'reels', 'stories', 'explore', 'tv', 'accounts', 'share', 'direct', 'inbox',
-      'whatsapp', 'facebook', 'meta', 'instagram', 'google', 'youtube', 'tiktok',
-      'snapchat', 'twitter', 'x', 'linkedin', 'pinterest', 'shopify', 'wix', 'wordpress',
-      'paypal', 'apple', 'microsoft', 'amazon',
-    ]);
-    const allIgMatches = [...html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/gi)];
-    const igCandidates = allIgMatches
-      .map(m => ({ handle: m[1].toLowerCase(), url: `https://www.instagram.com/${m[1]}/` }))
-      .filter(({ handle }) => handle.length > 1 && !BLOCKED_IG.has(handle));
-    const uniqueIg = [...new Map(igCandidates.map(c => [c.handle, c])).values()];
-    const instagram_url = uniqueIg[0]?.url || null;
+    const instagram_url = findInstagramInHtml(html);
 
     return {
       content: parts.length ? parts.join('\n').slice(0, 2000) : null,
@@ -139,4 +160,4 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { researchLead, researchLeads };
+module.exports = { researchLead, researchLeads, extractInstagramUrl };
