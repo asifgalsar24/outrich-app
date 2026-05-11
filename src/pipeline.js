@@ -55,7 +55,6 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
             business_score: scoreResult.score,
             lead_quality: scoreResult.tier,
             score_reasoning: scoreResult.score_reasoning,
-            suggested_service: scoreResult.suggested_service,
             outreach_angle: scoreResult.outreach_angle,
           });
           return { lead: { ...lead, id }, scoreResult };
@@ -95,7 +94,6 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
     await notify(`📋 יש *${qualifiedFromThisRun.length}* לידים כשירים. מחקר + כתיבת מיילים (${RESEARCH_BATCH} במקביל)...`);
 
     let emailsWritten = 0;
-    let lemlistPushed = 0;
 
     for (let i = 0; i < qualifiedFromThisRun.length; i += RESEARCH_BATCH) {
       const batch = qualifiedFromThisRun.slice(i, i + RESEARCH_BATCH);
@@ -111,23 +109,14 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
           const emailResult = await writeAndCheckEmail(enrichedLead, voice_profile);
           await db.updateLeadEmail(lead.id, emailResult);
 
-          // Push hot leads (8+) to Lemlist
-          let pushed = false;
-          if (lead.business_score >= 8 && emailResult.email_approved) {
-            let emailAddress = lead.email_address;
-            if (!emailAddress) {
-              emailAddress = await findEmail(lead);
-              if (emailAddress) await db.updateLeadEmailAddress(lead.id, emailAddress);
-            }
-            const leadWithEmail = { ...lead, ...emailResult, email_address: emailAddress };
-            const pushResult = await pushToLemlist(leadWithEmail);
-            if (!pushResult.skipped) {
-              await db.updateLeadLemlistStatus(lead.id);
-              pushed = true;
-            }
+          // Find email for all leads (not just hot ones)
+          let emailAddress = lead.email_address;
+          if (!emailAddress) {
+            emailAddress = await findEmail({ ...lead, ...emailResult });
+            if (emailAddress) await db.updateLeadEmailAddress(lead.id, emailAddress);
           }
 
-          return { emailWritten: true, pushed };
+          return { emailWritten: true, pushed: false };
         })
       );
 
@@ -164,7 +153,6 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
       `🌡 ביניים (5-7): ${counts.warm}`,
       `❄️ קר (1-4): ${counts.cold}`,
       `📧 מיילים נכתבו: ${emailsWritten}`,
-      `📤 נשלחו ל-Lemlist: ${lemlistPushed}`,
     ];
 
     if (hotLeads.length > 0) {
@@ -211,7 +199,16 @@ function groupLeadsByCompany(leads) {
     const facebook_page = lead.facebook_page || `name:${(lead.company_name || '').toLowerCase().trim()}`;
 
     if (!map.has(key)) {
-      map.set(key, { ...lead, facebook_page, active_ads_count: lead.active_ads_count ?? 1 });
+      map.set(key, {
+        ...lead,
+        facebook_page,
+        active_ads_count:  lead.active_ads_count ?? 1,
+        video_count:       lead.ad_type === 'video'    ? 1 : 0,
+        image_count:       lead.ad_type === 'image'    ? 1 : 0,
+        carousel_count:    lead.ad_type === 'carousel' ? 1 : 0,
+        oldest_ad_url:     lead.ad_url || null,
+        oldest_ad_date:    lead.ad_start_date || null,
+      });
     } else {
       const g = map.get(key);
       // Use the highest known count — collation_count from Meta is the real total
@@ -232,6 +229,18 @@ function groupLeadsByCompany(leads) {
       } else if (lead.ad_copy && !g.ad_copy) {
         g.ad_copy = lead.ad_copy;
       }
+      // Accumulate ad type counts
+      g.video_count    = (g.video_count    || 0) + (lead.ad_type === 'video'    ? 1 : 0);
+      g.image_count    = (g.image_count    || 0) + (lead.ad_type === 'image'    ? 1 : 0);
+      g.carousel_count = (g.carousel_count || 0) + (lead.ad_type === 'carousel' ? 1 : 0);
+      // Track oldest ad (earliest publish date = most proven ad)
+      if (lead.ad_start_date && (!g.oldest_ad_date || lead.ad_start_date < g.oldest_ad_date)) {
+        g.oldest_ad_date = lead.ad_start_date;
+        g.oldest_ad_url  = lead.ad_url;
+      }
+      // Prefer Instagram data from any ad in the group
+      if (!g.instagram_page      && lead.instagram_page)      g.instagram_page      = lead.instagram_page;
+      if (!g.instagram_followers  && lead.instagram_followers)  g.instagram_followers  = lead.instagram_followers;
     }
   }
 

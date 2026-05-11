@@ -272,6 +272,18 @@ function buildLead(ad, keyword) {
     .join(' | ')
     .slice(0, 800) || null;
 
+  const ad_start_date =
+    ad.start_date             ? new Date(ad.start_date * 1000).toISOString().slice(0, 10) :
+    ad.ad_delivery_start_time ? String(ad.ad_delivery_start_time).slice(0, 10) :
+    ad.ad_creation_time       ? String(ad.ad_creation_time).slice(0, 10) :
+    null;
+
+  const igNodes = ad.page_instagram_accounts?.nodes || (ad.instagram_actor ? [ad.instagram_actor] : []);
+  const igActor = igNodes[0] || null;
+  const instagram_page = igActor?.username ? `https://www.instagram.com/${igActor.username}/` :
+                         igActor?.id       ? `https://www.instagram.com/${igActor.id}/` : null;
+  const instagram_followers = igActor?.followers_count ?? igActor?.followers ?? null;
+
   return {
     company_name: name,
     ad_url: adId ? `https://www.facebook.com/ads/library/?id=${adId}` : '',
@@ -290,6 +302,9 @@ function buildLead(ad, keyword) {
       typeof ad.ad_count === 'number' ? ad.ad_count :
       null,
     page_followers: ad.page_like_count || null,
+    ad_start_date,
+    instagram_page,
+    instagram_followers,
     source: 'meta_ads',
   };
 }

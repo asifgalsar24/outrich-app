@@ -57,6 +57,7 @@ async function insertLeads(leads, client_id) {
       .from('leads')
       .update({
         ...fields,
+        // Reset AI-generated fields so they get re-analysed
         business_score: null,
         lead_quality: null,
         score_reasoning: null,
@@ -66,6 +67,7 @@ async function insertLeads(leads, client_id) {
         hebrew_email_draft: null,
         email_approved: null,
         email_issue: null,
+        // Raw scraped fields (video_count, instagram_page, etc.) come from ...fields above
       })
       .eq('id', id)
       .select('id, company_name, facebook_page');
@@ -77,10 +79,10 @@ async function insertLeads(leads, client_id) {
   return results;
 }
 
-async function updateLeadScore(id, { business_score, lead_quality, score_reasoning, suggested_service, outreach_angle }) {
+async function updateLeadScore(id, { business_score, lead_quality, score_reasoning, outreach_angle }) {
   const { error } = await supabase
     .from('leads')
-    .update({ business_score, lead_quality, score_reasoning, suggested_service, outreach_angle })
+    .update({ business_score, lead_quality, score_reasoning, outreach_angle })
     .eq('id', id);
   if (error) throw new Error(`updateLeadScore(${id}): ${error.message}`);
 }
