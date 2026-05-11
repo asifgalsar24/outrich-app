@@ -5,9 +5,6 @@ const { scrapeMetaAds } = require('./scraper');
 const { scoreLead } = require('./scorer');
 const { researchLead } = require('./researcher');
 const { writeAndCheckEmail } = require('./writer');
-const { pushToLemlist } = require('./lemlist');
-const { findEmail } = require('./emailfinder');
-const { updateLeadInstagram } = require('./db');
 
 const SCORE_BATCH   = 5; // concurrent Claude scoring calls
 const RESEARCH_BATCH = 3; // concurrent Perplexity + email calls (slower API)
@@ -22,7 +19,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
 
   try {
     // ── STEP 1: SCRAPE ────────────────────────────────────────────────────────
-    await notify(`🔍 שלב 1/5: מחפש מודעות ל-*${keyword}* דרך Meta Ads...`);
+    await notify(`🔍 שלב 1/3: סורק מודעות Meta Ads עבור *${keyword}*...`);
     const rawLeads = await scrapeMetaAds({ keyword, location, max_leads });
 
     if (rawLeads.length === 0) {
@@ -38,10 +35,10 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
 
     const mergedByPage = new Map(mergedLeads.map(l => [l.facebook_page, l]));
     const inserted = await db.insertLeads(mergedLeads, user_id);
-    await notify(`✅ שלב 1 הושלם! *${inserted.length}* לידים חדשים/מרועננים. מתחיל ניקוד...`);
+    await notify(`נמצאו *${inserted.length}* לידים חדשים/מרועננים. מנתח...`);
 
     // ── STEP 3: SCORE — parallel batches ─────────────────────────────────────
-    await notify(`🧠 שלב 2/5: מנתח ומדרג כל עסק עם Claude (${SCORE_BATCH} במקביל)...`);
+    await notify(`🧠 שלב 2/3: מנתח ומדרג עסקים עם Claude (${SCORE_BATCH} במקביל)...`);
     const counts = { hot: 0, warm: 0, cold: 0 };
     const qualifiedFromThisRun = [];
 
@@ -66,7 +63,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
         if (result.status === 'fulfilled') {
           const { lead, scoreResult } = result.value;
           counts[scoreResult.tier] = (counts[scoreResult.tier] || 0) + 1;
-          if (scoreResult.score >= 1) {
+          if (scoreResult.score >= 5) {
             qualifiedFromThisRun.push({ ...lead, ...scoreResult });
           }
         } else {
@@ -82,7 +79,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
     }
 
     await notify(
-      `✅ שלב 2 הושלם!\n\n🔥 חם: *${counts.hot}* | 🌡 ביניים: *${counts.warm}* | ❄️ קר: *${counts.cold}*\n\nמתחיל מחקר על הלידים הכשירים (ציון 7+)...`
+      `✅ שלב 2 הושלם!\n\n🔥 חם: *${counts.hot}* | 🌡 ביניים: *${counts.warm}* | ❄️ קר: *${counts.cold}*\n\nמתחיל מחקר על הלידים החמים והבינוניים (ציון 5+)...`
     );
 
     // ── STEP 4: RESEARCH + WRITE + PUSH — parallel batches ───────────────────
@@ -92,10 +89,9 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
       return;
     }
 
-    await notify(`📋 יש *${qualifiedFromThisRun.length}* לידים כשירים. מחקר + כתיבת מיילים (${RESEARCH_BATCH} במקביל)...`);
+    await notify(`📝 שלב 3/3: מחקר + כתיבת הודעות עבור *${qualifiedFromThisRun.length}* לידים (${RESEARCH_BATCH} במקביל)...`);
 
     let emailsWritten = 0;
-    let lemlistPushed = 0;
 
     for (let i = 0; i < qualifiedFromThisRun.length; i += RESEARCH_BATCH) {
       const batch = qualifiedFromThisRun.slice(i, i + RESEARCH_BATCH);
@@ -114,28 +110,20 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
           const emailResult = await writeAndCheckEmail(enrichedLead, voice_profile);
           await db.updateLeadEmail(lead.id, emailResult);
 
-          // Find email for all leads (not just hot ones)
-          let emailAddress = lead.email_address;
-          if (!emailAddress) {
-            emailAddress = await findEmail({ ...lead, ...emailResult });
-            if (emailAddress) await db.updateLeadEmailAddress(lead.id, emailAddress);
-          }
-
-          return { emailWritten: true, pushed: false };
+          return { emailWritten: true };
         })
       );
 
       for (const result of batchResults) {
         if (result.status === 'fulfilled') {
           if (result.value.emailWritten) emailsWritten++;
-          if (result.value.pushed) lemlistPushed++;
         } else {
           console.error(`[Pipeline] Research/write batch error: ${result.reason?.message}`);
         }
       }
 
       const done = Math.min(i + RESEARCH_BATCH, qualifiedFromThisRun.length);
-      await notify(`   מחקר + מיילים: ${done}/${qualifiedFromThisRun.length} | נשלחו ל-Lemlist: ${lemlistPushed}`);
+      await notify(`   מחקר + הודעות: ${done}/${qualifiedFromThisRun.length}`);
 
       if (i + RESEARCH_BATCH < qualifiedFromThisRun.length) await sleep(500);
     }
@@ -157,7 +145,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
       `🔥 חם (8-10): ${counts.hot}`,
       `🌡 ביניים (5-7): ${counts.warm}`,
       `❄️ קר (1-4): ${counts.cold}`,
-      `📧 מיילים נכתבו: ${emailsWritten}`,
+      `💬 הודעות נכתבו: ${emailsWritten}`,
     ];
 
     if (hotLeads.length > 0) {
@@ -166,7 +154,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
         summaryLines.push(
           ``,
           `${i + 1}. *${lead.company_name}* — ציון ${lead.business_score}/10`,
-          `   📧 ${lead.email_address || 'אין מייל'}`,
+          `   📸 ${lead.instagram_page || 'אין אינסטגרם'}`,
           `   🌐 ${lead.website_url || 'אין אתר'}`,
           `   💡 ${lead.outreach_angle || ''}`
         );

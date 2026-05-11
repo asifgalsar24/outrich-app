@@ -38,12 +38,19 @@ async function scrapeWebsite(url) {
       body     ? `תוכן: ${body}`         : null,
     ].filter(Boolean);
 
-    // Extract Instagram profile URL from social links in the site HTML
-    const BLOCKED = ['p', 'reel', 'stories', 'explore', 'tv', 'accounts', 'share'];
-    const igMatch = html.match(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/);
-    const instagram_url = igMatch && !BLOCKED.includes(igMatch[1])
-      ? `https://www.instagram.com/${igMatch[1]}/`
-      : null;
+    // Extract Instagram profile URL — collect ALL matches, filter known non-business accounts
+    const BLOCKED_IG = new Set([
+      'p', 'reel', 'reels', 'stories', 'explore', 'tv', 'accounts', 'share', 'direct', 'inbox',
+      'whatsapp', 'facebook', 'meta', 'instagram', 'google', 'youtube', 'tiktok',
+      'snapchat', 'twitter', 'x', 'linkedin', 'pinterest', 'shopify', 'wix', 'wordpress',
+      'paypal', 'apple', 'microsoft', 'amazon',
+    ]);
+    const allIgMatches = [...html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/gi)];
+    const igCandidates = allIgMatches
+      .map(m => ({ handle: m[1].toLowerCase(), url: `https://www.instagram.com/${m[1]}/` }))
+      .filter(({ handle }) => handle.length > 1 && !BLOCKED_IG.has(handle));
+    const uniqueIg = [...new Map(igCandidates.map(c => [c.handle, c])).values()];
+    const instagram_url = uniqueIg[0]?.url || null;
 
     return {
       content: parts.length ? parts.join('\n').slice(0, 2000) : null,
