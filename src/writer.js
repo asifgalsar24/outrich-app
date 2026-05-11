@@ -230,4 +230,50 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = { writeEmail, checkEmail, writeAndCheckEmail };
+/**
+ * Write a short Instagram DM — 50 words max, conversational, no sign-off.
+ */
+async function writeDm(lead, voiceProfile = {}) {
+  const hooks = parseResearchHooks(lead.perplexity_research);
+
+  const system = [
+    `אתה כותב הודעות DM קצרות בעברית לאינסטגרם עבור ${voiceProfile.company_name || 'הלקוח'}.`,
+    voiceProfile.service_description ? `השירות: ${voiceProfile.service_description}` : null,
+    ``,
+    `חוקי ברזל:`,
+    `- מקסימום 50 מילים בלבד`,
+    `- אין ברכה, אין "שלום", אין "היי", אין חתימה`,
+    `- פתח ישירות עם פרט ספציפי שראית בעסק שלהם — לא גנרי`,
+    `- הרגיש כמו הודעה אמיתית מאדם אמיתי, לא כמו מייל שיווקי`,
+    `- שאלה אחת פשוטה בסוף`,
+    `- עברית יומיומית, לא פורמלית, לא רובוטית`,
+    voiceProfile.tone_description ? `- טון: ${voiceProfile.tone_description}`  : null,
+    voiceProfile.phrases_to_avoid ? `- אסור: ${voiceProfile.phrases_to_avoid}` : null,
+    voiceProfile.phrases_to_use   ? `- מותר: ${voiceProfile.phrases_to_use}`   : null,
+  ].filter(Boolean).join('\n');
+
+  const userContent = [
+    `כתוב הודעת DM לאינסטגרם עבור: ${lead.company_name}`,
+    `תחום: ${lead.niche || ''}`,
+    hooks?.observation ? `פתח עם: ${hooks.observation}` : null,
+    hooks?.gap         ? `הזכר: ${hooks.gap}`           : null,
+  ].filter(Boolean).join('\n');
+
+  const response = await axios.post(CLAUDE_API, {
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 200,
+    system,
+    messages: [{ role: 'user', content: userContent }],
+  }, {
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    timeout: 15_000,
+  });
+
+  return response.data.content?.[0]?.text || '';
+}
+
+module.exports = { writeEmail, checkEmail, writeAndCheckEmail, writeDm };

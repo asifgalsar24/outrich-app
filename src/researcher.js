@@ -5,7 +5,7 @@ const axios = require('axios');
 const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
 
 async function scrapeWebsite(url) {
-  if (!url) return null;
+  if (!url) return { content: null, instagram_url: null };
   try {
     const { data: html } = await axios.get(url, {
       timeout: 8_000,
@@ -38,14 +38,24 @@ async function scrapeWebsite(url) {
       body     ? `תוכן: ${body}`         : null,
     ].filter(Boolean);
 
-    return parts.length ? parts.join('\n').slice(0, 2000) : null;
+    // Extract Instagram profile URL from social links in the site HTML
+    const BLOCKED = ['p', 'reel', 'stories', 'explore', 'tv', 'accounts', 'share'];
+    const igMatch = html.match(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/);
+    const instagram_url = igMatch && !BLOCKED.includes(igMatch[1])
+      ? `https://www.instagram.com/${igMatch[1]}/`
+      : null;
+
+    return {
+      content: parts.length ? parts.join('\n').slice(0, 2000) : null,
+      instagram_url,
+    };
   } catch {
-    return null;
+    return { content: null, instagram_url: null };
   }
 }
 
 async function researchLead(lead) {
-  const websiteText = await scrapeWebsite(lead.website_url);
+  const websiteData = await scrapeWebsite(lead.website_url);
 
   // Don't treat template-variable-only copy as real ad content
   const hasRealAdCopy = lead.ad_copy &&
@@ -56,10 +66,10 @@ async function researchLead(lead) {
     `Business: ${lead.company_name}`,
     `Industry: ${lead.niche}`,
     `Ad format (confirmed): ${lead.ad_type || 'unknown'}`,
-    hasRealAdCopy      ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"` : null,
-    lead.website_url   ? `Website: ${lead.website_url}`                                : null,
-    lead.facebook_page ? `Facebook: ${lead.facebook_page}`                             : null,
-    websiteText        ? `\nWebsite content (scraped):\n${websiteText}`                : null,
+    hasRealAdCopy           ? `\nActual ad copy from their Facebook ads:\n"${lead.ad_copy}"` : null,
+    lead.website_url        ? `Website: ${lead.website_url}`                                 : null,
+    lead.facebook_page      ? `Facebook: ${lead.facebook_page}`                              : null,
+    websiteData.content     ? `\nWebsite content (scraped):\n${websiteData.content}`         : null,
   ].filter(Boolean).join('\n');
 
   const response = await axios.post(CLAUDE_API, {
@@ -98,7 +108,10 @@ async function researchLead(lead) {
     timeout: 20_000,
   });
 
-  return response.data.content?.[0]?.text || 'Research unavailable.';
+  return {
+    text: response.data.content?.[0]?.text || 'Research unavailable.',
+    instagram_url: websiteData.instagram_url || null,
+  };
 }
 
 async function researchLeads(leads, onProgress) {

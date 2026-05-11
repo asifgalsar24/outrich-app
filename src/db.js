@@ -103,6 +103,11 @@ async function updateLeadEmailAddress(id, email_address) {
   if (error) throw new Error(`updateLeadEmailAddress(${id}): ${error.message}`);
 }
 
+async function updateLeadInstagram(id, instagram_page) {
+  const { error } = await supabase.from('leads').update({ instagram_page }).eq('id', id);
+  if (error) console.error(`updateLeadInstagram(${id}): ${error.message}`);
+}
+
 async function updateLeadEmail(id, { hebrew_email_draft, email_approved, email_issue }) {
   const { error } = await supabase.from('leads').update({ hebrew_email_draft, email_approved, email_issue }).eq('id', id);
   if (error) throw new Error(`updateLeadEmail(${id}): ${error.message}`);
@@ -160,6 +165,7 @@ module.exports = {
   getLeadById,
   updateLeadResearch,
   updateLeadEmailAddress,
+  updateLeadInstagram,
   updateLeadEmail,
   updateLeadLemlistStatus,
   getHotLeads,

@@ -7,6 +7,7 @@ const { researchLead } = require('./researcher');
 const { writeAndCheckEmail } = require('./writer');
 const { pushToLemlist } = require('./lemlist');
 const { findEmail } = require('./emailfinder');
+const { updateLeadInstagram } = require('./db');
 
 const SCORE_BATCH   = 5; // concurrent Claude scoring calls
 const RESEARCH_BATCH = 3; // concurrent Perplexity + email calls (slower API)
@@ -94,18 +95,22 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
     await notify(`📋 יש *${qualifiedFromThisRun.length}* לידים כשירים. מחקר + כתיבת מיילים (${RESEARCH_BATCH} במקביל)...`);
 
     let emailsWritten = 0;
+    let lemlistPushed = 0;
 
     for (let i = 0; i < qualifiedFromThisRun.length; i += RESEARCH_BATCH) {
       const batch = qualifiedFromThisRun.slice(i, i + RESEARCH_BATCH);
 
       const batchResults = await Promise.allSettled(
         batch.map(async (lead) => {
-          // Research
+          // Research — returns { text, instagram_url }
           const research = await researchLead(lead);
-          await db.updateLeadResearch(lead.id, research);
+          await db.updateLeadResearch(lead.id, research.text);
+          if (research.instagram_url && !lead.instagram_page) {
+            await db.updateLeadInstagram(lead.id, research.instagram_url);
+          }
 
           // Write + check email
-          const enrichedLead = { ...lead, perplexity_research: research };
+          const enrichedLead = { ...lead, perplexity_research: research.text };
           const emailResult = await writeAndCheckEmail(enrichedLead, voice_profile);
           await db.updateLeadEmail(lead.id, emailResult);
 
