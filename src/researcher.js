@@ -11,30 +11,70 @@ const BLOCKED_IG = new Set([
   'paypal', 'apple', 'microsoft', 'amazon',
 ]);
 
-function findInstagramInHtml(html) {
-  const allMatches = [...html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/gi)];
-  const candidates = allMatches
-    .map(m => ({ handle: m[1].toLowerCase(), url: `https://www.instagram.com/${m[1]}/` }))
-    .filter(({ handle }) => handle.length > 1 && !BLOCKED_IG.has(handle));
-  const unique = [...new Map(candidates.map(c => [c.handle, c])).values()];
-  return unique[0]?.url || null;
-}
+// Hosts that are not real business websites — scraping them for social links is pointless
+const SKIP_HOSTS = [
+  'wa.me', 'api.whatsapp.com', 'linktr.ee', 'linktree.com',
+  't.me', 'telegram.me', 'bit.ly', 'goo.gl', 'tinyurl.com',
+];
 
-/**
- * Lightweight Instagram URL extractor — just fetches the website and scans for an IG link.
- * No Claude, no content parsing. Used for the fast IG discovery pass in the pipeline.
- */
-async function extractInstagramUrl(websiteUrl) {
-  if (!websiteUrl) return null;
+function toHomepageUrl(url) {
+  if (!url) return null;
   try {
-    const { data: html } = await axios.get(websiteUrl, {
-      timeout: 6_000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
-    });
-    return findInstagramInHtml(html);
+    const { protocol, hostname } = new URL(url);
+    if (!protocol.startsWith('http')) return null;
+    if (SKIP_HOSTS.some(h => hostname.endsWith(h))) return null;
+    return `${protocol}//${hostname}`;
   } catch {
     return null;
   }
+}
+
+function findInstagramInHtml(html) {
+  const handles = new Map();
+
+  // Pattern 1: full or protocol-relative Instagram profile URLs
+  for (const m of html.matchAll(/(?:https?:)?\/\/(?:www\.)?instagram\.com\/([\w.]+)\/?/gi)) {
+    const h = m[1].toLowerCase();
+    if (h.length > 1 && !BLOCKED_IG.has(h)) handles.set(h, `https://www.instagram.com/${m[1]}/`);
+  }
+
+  // Pattern 2: JSON/JS config — "instagram":"handle" or "instagramUrl":"handle"
+  // Catches Wix/Next.js __INITIAL_STATE__ and schema.org sameAs handle strings
+  if (handles.size === 0) {
+    for (const m of html.matchAll(/["']instagram(?:_?(?:url|handle|link|page|name|username))?["']\s*[:=]\s*["']([\w.]{2,40})["']/gi)) {
+      const h = m[1].toLowerCase();
+      if (!h.includes('/') && !h.includes('http') && !BLOCKED_IG.has(h))
+        handles.set(h, `https://www.instagram.com/${m[1]}/`);
+    }
+  }
+
+  return handles.size > 0 ? [...handles.values()][0] : null;
+}
+
+/**
+ * Lightweight Instagram URL extractor.
+ * Tries the homepage first (social links live there, not on ad landing pages),
+ * then falls back to the original URL. Skips non-website hosts (wa.me, linktr.ee…).
+ */
+async function extractInstagramUrl(websiteUrl) {
+  if (!websiteUrl) return null;
+
+  const homepageUrl = toHomepageUrl(websiteUrl);
+  const urlsToTry = homepageUrl
+    ? [homepageUrl, ...(homepageUrl !== websiteUrl ? [websiteUrl] : [])]
+    : [websiteUrl];
+
+  for (const url of urlsToTry) {
+    try {
+      const { data: html } = await axios.get(url, {
+        timeout: 6_000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
+      });
+      const ig = findInstagramInHtml(html);
+      if (ig) return ig;
+    } catch { /* try next URL */ }
+  }
+  return null;
 }
 
 async function scrapeWebsite(url) {
