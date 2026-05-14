@@ -95,7 +95,7 @@ async function runPipeline({ keyword, location = 'Israel', max_leads = 50, user_
         const batch = toFindIg.slice(i, i + IG_BATCH);
         const results = await Promise.allSettled(
           batch.map(async (lead) => {
-            const url = await extractInstagramUrl(lead.website_url);
+            const url = await extractInstagramUrl(lead.website_url, lead.company_name);
             if (url) {
               await db.updateLeadInstagram(lead.id, url);
               return true;

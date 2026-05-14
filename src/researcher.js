@@ -52,29 +52,87 @@ function findInstagramInHtml(html) {
 }
 
 /**
- * Lightweight Instagram URL extractor.
- * Tries the homepage first (social links live there, not on ad landing pages),
- * then falls back to the original URL. Skips non-website hosts (wa.me, linktr.ee…).
+ * Search Instagram by business name and return the best-matching profile URL.
+ * Uses Instagram's internal search endpoint — no API key needed.
  */
-async function extractInstagramUrl(websiteUrl) {
-  if (!websiteUrl) return null;
+async function findInstagramByName(companyName) {
+  if (!companyName) return null;
+  try {
+    const { data } = await axios.get(
+      `https://www.instagram.com/web/search/topsearch/?query=${encodeURIComponent(companyName)}&context=blended&include_reel=false`,
+      {
+        timeout: 8_000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'X-IG-App-ID': '936619743392459',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Referer': 'https://www.instagram.com/',
+        },
+      }
+    );
 
-  const homepageUrl = toHomepageUrl(websiteUrl);
-  const urlsToTry = homepageUrl
-    ? [homepageUrl, ...(homepageUrl !== websiteUrl ? [websiteUrl] : [])]
-    : [websiteUrl];
+    const users = data?.users || [];
+    if (users.length === 0) return null;
 
-  for (const url of urlsToTry) {
-    try {
-      const { data: html } = await axios.get(url, {
-        timeout: 6_000,
-        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
-      });
-      const ig = findInstagramInHtml(html);
-      if (ig) return ig;
-    } catch { /* try next URL */ }
+    // Score each candidate against the company name
+    const norm = s => s.toLowerCase().replace(/[^a-z0-9א-תa-z\s]/g, '').trim();
+    const nameWords = norm(companyName).split(/\s+/).filter(w => w.length > 2);
+
+    let best = null;
+    let bestScore = 0;
+
+    for (const { user } of users.slice(0, 5)) {
+      const fullName = norm(user.full_name || '');
+      const handle   = norm(user.username  || '');
+      let score = 0;
+
+      for (const word of nameWords) {
+        if (fullName.includes(word)) score += 2;
+        if (handle.includes(word))   score += 1;
+      }
+      if (user.is_business) score += 1;
+
+      if (score > bestScore) { bestScore = score; best = user; }
+    }
+
+    // Require at least one meaningful word overlap
+    if (bestScore >= 2 && best) {
+      return `https://www.instagram.com/${best.username}/`;
+    }
+    return null;
+  } catch {
+    return null;
   }
-  return null;
+}
+
+/**
+ * Lightweight Instagram URL extractor.
+ * 1. Tries the homepage (social links live there, not on ad landing pages)
+ * 2. Falls back to Instagram search by company name
+ */
+async function extractInstagramUrl(websiteUrl, companyName) {
+  // Step 1 — website homepage scraping
+  if (websiteUrl) {
+    const homepageUrl = toHomepageUrl(websiteUrl);
+    const urlsToTry = homepageUrl
+      ? [homepageUrl, ...(homepageUrl !== websiteUrl ? [websiteUrl] : [])]
+      : [websiteUrl];
+
+    for (const url of urlsToTry) {
+      try {
+        const { data: html } = await axios.get(url, {
+          timeout: 6_000,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OutReachBot/1.0)' },
+        });
+        const ig = findInstagramInHtml(html);
+        if (ig) return ig;
+      } catch { /* try next */ }
+    }
+  }
+
+  // Step 2 — Instagram search by business name
+  return findInstagramByName(companyName);
 }
 
 async function scrapeWebsite(url) {
