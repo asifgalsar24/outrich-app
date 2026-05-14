@@ -51,86 +51,34 @@ function findInstagramInHtml(html) {
   return handles.size > 0 ? [...handles.values()][0] : null;
 }
 
-// Cached guest session cookies — fetched once per process, reused for all IG searches
-let _igCookies = null;
-
-async function getInstagramCookies() {
-  if (_igCookies) return _igCookies;
-  try {
-    const resp = await axios.get('https://www.instagram.com/', {
-      timeout: 10_000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8',
-      },
-    });
-    const setCookies = resp.headers['set-cookie'] || [];
-    _igCookies = setCookies.map(c => c.split(';')[0]).join('; ');
-    console.log('[IG] Session initialized, cookies:', _igCookies.slice(0, 80));
-    return _igCookies;
-  } catch (err) {
-    console.warn('[IG] Could not init session:', err.message);
-    return '';
-  }
-}
-
 /**
- * Search Instagram by business name and return the best-matching profile URL.
- * Initializes a guest session first so the search endpoint accepts the request.
+ * Search Bing for "{company name} instagram" and extract the first Instagram profile URL.
+ * More reliable than Instagram's own API which blocks unauthenticated requests.
  */
 async function findInstagramByName(companyName) {
   if (!companyName) return null;
   try {
-    const cookies = await getInstagramCookies();
-    const csrfMatch = cookies.match(/csrftoken=([^;]+)/);
-    const csrf = csrfMatch?.[1] || '';
-
-    const { data } = await axios.get(
-      `https://www.instagram.com/web/search/topsearch/?query=${encodeURIComponent(companyName)}&context=blended&include_reel=false`,
+    const { data: html } = await axios.get(
+      `https://www.bing.com/search?q=${encodeURIComponent(companyName + ' instagram')}&count=5`,
       {
-        timeout: 8_000,
+        timeout: 10_000,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-          'X-IG-App-ID': '936619743392459',
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-CSRFToken': csrf,
-          'Referer': 'https://www.instagram.com/',
-          'Cookie': cookies,
+          'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8',
+          'Accept': 'text/html',
         },
       }
     );
 
-    const users = data?.users || [];
-    console.log(`[IG Search] "${companyName}" → ${users.length} results`);
-    if (users.length === 0) return null;
-
-    // Score each candidate against the company name
-    const norm = s => s.toLowerCase().replace(/[^a-z0-9א-ת\s]/g, '').trim();
-    const nameWords = norm(companyName).split(/\s+/).filter(w => w.length > 2);
-
-    let best = null;
-    let bestScore = 0;
-
-    for (const { user } of users.slice(0, 5)) {
-      const fullName = norm(user.full_name || '');
-      const handle   = norm(user.username  || '');
-      let score = 0;
-
-      for (const word of nameWords) {
-        if (fullName.includes(word)) score += 2;
-        if (handle.includes(word))   score += 1;
-      }
-      if (user.is_business) score += 1;
-
-      if (score > bestScore) { bestScore = score; best = user; }
+    const ig = findInstagramInHtml(html);
+    if (ig) {
+      console.log(`[IG Bing] "${companyName}" → ${ig}`);
+    } else {
+      console.log(`[IG Bing] "${companyName}" → no match`);
     }
-
-    console.log(`[IG Search] best match: @${best?.username} score=${bestScore}`);
-    if (bestScore >= 2 && best) return `https://www.instagram.com/${best.username}/`;
-    return null;
+    return ig;
   } catch (err) {
-    console.warn(`[IG Search] failed for "${companyName}": ${err.response?.status ?? err.message}`);
+    console.warn(`[IG Bing] failed for "${companyName}": ${err.response?.status ?? err.message}`);
     return null;
   }
 }
